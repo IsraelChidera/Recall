@@ -213,6 +213,7 @@ describe("AI configuration", () => {
       bulkModel: "gemini-3.5-flash-lite",
       qualityModel: "gemini-3.8-flash",
       dailyRequestCap: 450,
+      userDailyRequestCap: 150,
       requestsPerMinute: 10,
       requestsPerAdvance: 4,
     });
@@ -221,6 +222,11 @@ describe("AI configuration", () => {
   it("reads overrides and ignores invalid ones", () => {
     const config = parseAIConfig({ AI_DAILY_REQUEST_CAP: "100", AI_REQUESTS_PER_MINUTE: "-3", AI_PROVIDER: "other" });
     expect(config).toMatchObject({ dailyRequestCap: 100, requestsPerMinute: 10, provider: "gemini" });
+  });
+
+  it("never gives one user more than the shared total", () => {
+    const config = parseAIConfig({ AI_DAILY_REQUEST_CAP: "50", AI_USER_DAILY_REQUEST_CAP: "200" });
+    expect(config.userDailyRequestCap).toBe(50);
   });
 
   it("counts the quota day in Pacific time", () => {

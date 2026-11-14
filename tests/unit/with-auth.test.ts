@@ -89,6 +89,14 @@ describe("withAuth", () => {
     expect(handler.mock.calls[0]?.[1]).toMatchObject({ uid: "alice" });
   });
 
+  it("admits every verified account when the allowlist is *", async () => {
+    const open = guarded(["*"]);
+    const response = await open.route(request({ Authorization: "Bearer alice-token" }), undefined);
+    expect(await response.json()).toMatchObject({ aiAllowed: true });
+    const unverified = await open.route(request({ Authorization: "Bearer unverified-token" }), undefined);
+    expect(unverified.status).toBe(403);
+  });
+
   it("matches the AI allowlist case-insensitively and denies by default", async () => {
     const allowed = guarded(["alice@example.com"]);
     const yes = await allowed.route(request({ Authorization: "Bearer alice-token" }), undefined);
