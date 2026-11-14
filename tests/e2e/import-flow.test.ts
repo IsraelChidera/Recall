@@ -103,7 +103,13 @@ beforeAll(async () => {
     { Authorization: "Bearer owner" },
   );
 
-  server = spawn("npx", ["next", "start", "-p", String(PORT)], { stdio: "ignore", detached: true });
+  // The test runner sets NODE_ENV=test, under which Next.js ignores .env.local.
+  // The app under test must run as it does in production.
+  server = spawn("npx", ["next", "start", "-p", String(PORT)], {
+    stdio: "ignore",
+    detached: true,
+    env: { ...process.env, NODE_ENV: "production" },
+  });
   for (let attempt = 0; ; attempt++) {
     try {
       if ((await fetch(BASE)).ok) break;
