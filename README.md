@@ -4,7 +4,7 @@ Your AI conversations remember what you discussed. Recall makes sure you do some
 
 Recall analyses a Claude data export, finds unfinished projects and commitments, backs each one with a quote from the source conversation, and helps you resume the work. It runs entirely on free tiers: Next.js on Vercel Hobby, Firebase Authentication and Cloud Firestore on the Spark plan, and the Gemini Developer API free tier.
 
-**Status:** Milestone 2 of 10 (project foundation). Nothing user-facing works yet beyond the landing page.
+**Status:** Milestone 3 of 10 (authentication and security). You can create an account, confirm your email and sign in. Importing arrives next.
 
 ## Requirements
 
@@ -32,6 +32,28 @@ Open http://localhost:3000.
 | `npm run typecheck` | TypeScript, no emit |
 | `npm test` | Vitest, single run |
 | `npm run test:watch` | Vitest in watch mode |
+| `npm run test:rules` | Firestore Security Rules tests on the emulator (needs Java 21) |
+| `npm run emulators` | Auth and Firestore emulators for local development |
+
+## Local development with emulators
+
+No real Firebase project is needed to run the app locally.
+
+1. In `.env.local` set `NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID=demo-recall`, placeholder values for the other `NEXT_PUBLIC_FIREBASE_*` variables, and `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099` and `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`.
+2. Run `npm run emulators` in one terminal and `npm run dev` in another.
+3. Verification and reset links appear in the emulator terminal output instead of being emailed.
+
+Never set the emulator variables on Vercel.
+
+## Deploying security rules
+
+Rules and indexes live in `firestore.rules` and `firestore.indexes.json`. Deploy them from your machine after `npx firebase login`:
+
+```bash
+npx firebase deploy --only firestore:rules,firestore:indexes --project <your-project-id>
+```
+
+This replaces the rules of that project's default Firestore database. Use a Firebase project dedicated to Recall.
 
 ## Environment variables
 
@@ -52,8 +74,13 @@ Read the output before sharing it.
 ```text
 app/            routes and layouts (App Router)
 components/ui/  shadcn/ui primitives
+components/auth/ and components/app/  auth state, forms, guarded app shell
+lib/auth/       client auth helpers (errors, authenticated fetch, profile)
 lib/env/        validated environment access (client and server)
 lib/firebase/   web SDK and Admin SDK initialisation
+lib/server/     server-only guard (withAuth) and path builder
+firestore.rules, firestore.indexes.json, firebase.json
+tests/rules/    security rules tests (emulator)
 lib/utils.ts    shared helpers
 scripts/        local tooling
 tests/unit/     Vitest unit tests

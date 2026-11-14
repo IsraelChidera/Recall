@@ -1,3 +1,7 @@
+import Link from "next/link";
+
+import { buttonVariants } from "@/components/ui/button";
+
 const steps = [
   { name: "Import", detail: "Upload your Claude export. It is parsed in your browser." },
   { name: "Discover", detail: "Recall finds commitments and unfinished work, each with a quote." },
@@ -35,9 +39,14 @@ export default function HomePage() {
         ))}
       </ol>
 
-      <p className="text-sm text-muted-foreground">
-        In development. Sign-in arrives with the next milestone.
-      </p>
+      <div className="flex flex-wrap gap-3">
+        <Link href="/register" className={buttonVariants({ size: "lg" })}>
+          Create an account
+        </Link>
+        <Link href="/login" className={buttonVariants({ size: "lg", variant: "outline" })}>
+          Sign in
+        </Link>
+      </div>
     </main>
   );
 }

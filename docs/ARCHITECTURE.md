@@ -14,6 +14,14 @@ Approved on 14 November 2026. This is the Milestone 1 proposal as approved; late
 
 The proposal's schema changes (embedded evidence, no reminders collection, five task statuses) were approved with it.
 
+## Amendments since approval
+
+| Date | Change | Reason |
+| --- | --- | --- |
+| 14 Nov 2026 | The Claude export is a manifest plus one ZIP per category (`conversations-000.zip`, `projects-000.zip`, `memories-000.zip`, `design_chats-000.zip`, `frames-000.zip`, `claude_code_cloud-000.zip`, `light_metadata-000.zip`), each possibly split into numbered parts. Section 7 assumed a single archive. The importer will accept one or more `conversations-NNN.zip` files in a single import. | Observed in a real export manifest (version 1.0) |
+| 14 Nov 2026 | Conversations carry a client-written `needsAnalysis` boolean. The server-owned `analysis` map no longer drives the analysis queue query. | Lets the import mark work for analysis without the client writing a server-owned field |
+| 14 Nov 2026 | Firestore writes require a verified email, and the profile document is created on first entry to the app after verification. | Keeps unverified accounts from writing anything |
+
 ## Summary and decisions needed
 
 Recall is buildable on the approved zero-cost stack, but three of the prompt's assumptions do not survive contact with the current free tiers. I need your call on five points before Milestone 2 starts. No application code has been written.

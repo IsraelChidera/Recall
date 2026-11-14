@@ -1,0 +1,329 @@
+rules_version = '2';
+
+// Recall security rules.
+//
+// Model: every document lives under users/{uid}. Ownership is the path
+// segment, so there is no owner field for a client to forge. Writes also
+// require a verified email address.
+//
+// Authority is split. The browser may write what the user imports or decides
+// (imports, conversations, review edits). Everything produced by the AI
+// pipeline or the quota system (tasks, projects, jobs, usage, reports and the
+// `analysis` field) is written only by the server through the Admin SDK,
+// which bypasses these rules.
+//
+// These rules must change together with the schema in docs/ARCHITECTURE.md.
+// Never loosen a rule to clear a permission error.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Identity ---------------------------------------------------------
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function isVerifiedOwner(uid) {
+      return isOwner(uid) && request.auth.token.email_verified == true;
+    }
+
+    // ---- Generic helpers --------------------------------------------------
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function unchanged(keys) {
+      return !changedKeys().hasAny(keys);
+    }
+
+    function isText(value, max) {
+      return value is string && value.size() <= max;
+    }
+
+    function isFilledText(value, max) {
+      return value is string && value.size() > 0 && value.size() <= max;
+    }
+
+    function isCount(value) {
+      return value is int && value >= 0;
+    }
+
+    function optionalText(data, key, max) {
+      return !(key in data) || data[key] == null || isText(data[key], max);
+    }
+
+    function optionalTimestamp(data, key) {
+      return !(key in data) || data[key] == null || data[key] is timestamp;
+    }
+
+    function optionalCount(data, key) {
+      return !(key in data) || isCount(data[key]);
+    }
+
+    function optionalBool(data, key) {
+      return !(key in data) || data[key] is bool;
+    }
+
+    // createdAt and updatedAt must be the server time on create.
+    function stampedOnCreate() {
+      return incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+    }
+
+    // updatedAt must be the server time on update; createdAt never changes.
+    function stampedOnUpdate() {
+      return incoming().updatedAt == request.time && unchanged(['createdAt']);
+    }
+
+    // ---- Validators -------------------------------------------------------
+
+    function validUser(data) {
+      return data.keys().hasOnly([
+          'createdAt', 'updatedAt', 'displayName', 'aiConsentAccepted',
+          'aiConsentAt', 'aiConsentVersion', 'excludeKeywords'
+        ])
+        && data.keys().hasAll(['createdAt', 'updatedAt'])
+        && optionalText(data, 'displayName', 80)
+        && optionalBool(data, 'aiConsentAccepted')
+        && optionalTimestamp(data, 'aiConsentAt')
+        && optionalCount(data, 'aiConsentVersion')
+        && (!('excludeKeywords' in data)
+            || (data.excludeKeywords is list && data.excludeKeywords.size() <= 50));
+    }
+
+    function validSource(data) {
+      return data.keys().hasOnly([
+          'platform', 'adapterVersion', 'createdAt', 'updatedAt',
+          'lastImportId', 'conversationCount', 'messageCount'
+        ])
+        && data.keys().hasAll(['platform', 'adapterVersion', 'createdAt', 'updatedAt'])
+        && data.platform in ['claude']
+        && isCount(data.adapterVersion)
+        && optionalText(data, 'lastImportId', 128)
+        && optionalCount(data, 'conversationCount')
+        && optionalCount(data, 'messageCount');
+    }
+
+    function validSourceIndex(data) {
+      return data.keys().hasOnly(['sourceId', 'entries', 'updatedAt'])
+        && data.keys().hasAll(['sourceId', 'entries', 'updatedAt'])
+        && isFilledText(data.sourceId, 32)
+        && data.entries is map
+        && data.entries.size() <= 2000
+        && data.updatedAt == request.time;
+    }
+
+    function validImport(data) {
+      return data.keys().hasOnly([
+          'sourceId', 'status', 'fingerprint', 'fileNames', 'createdAt',
+          'updatedAt', 'completedAt', 'cursor', 'counts', 'errors'
+        ])
+        && data.keys().hasAll([
+          'sourceId', 'status', 'fingerprint', 'createdAt', 'updatedAt', 'cursor'
+        ])
+        && isFilledText(data.sourceId, 32)
+        && data.status in ['parsing', 'writing', 'paused', 'completed', 'failed']
+        && isFilledText(data.fingerprint, 128)
+        && isCount(data.cursor)
+        && optionalTimestamp(data, 'completedAt')
+        && (!('fileNames' in data)
+            || (data.fileNames is list && data.fileNames.size() <= 20))
+        && (!('counts' in data)
+            || (data.counts is map && data.counts.size() <= 10))
+        && (!('errors' in data)
+            || (data.errors is list && data.errors.size() <= 50));
+    }
+
+    function validConversation(data) {
+      return data.keys().hasOnly([
+          'sourceId', 'sourceConversationId', 'title', 'createdAtSource',
+          'updatedAtSource', 'messageCount', 'humanMessageCount', 'chunkCount',
+          'contentHash', 'sourceUrl', 'digest', 'excluded',
+          'missingFromLatestExport', 'needsAnalysis', 'importId', 'createdAt',
+          'updatedAt', 'analysis'
+        ])
+        && data.keys().hasAll([
+          'sourceId', 'sourceConversationId', 'title', 'messageCount',
+          'chunkCount', 'contentHash', 'excluded', 'needsAnalysis', 'importId',
+          'createdAt', 'updatedAt'
+        ])
+        && isFilledText(data.sourceId, 32)
+        && isFilledText(data.sourceConversationId, 128)
+        && isText(data.title, 500)
+        && optionalTimestamp(data, 'createdAtSource')
+        && optionalTimestamp(data, 'updatedAtSource')
+        && isCount(data.messageCount)
+        && optionalCount(data, 'humanMessageCount')
+        && isCount(data.chunkCount)
+        && isFilledText(data.contentHash, 128)
+        && optionalText(data, 'sourceUrl', 300)
+        && optionalText(data, 'digest', 4000)
+        && data.excluded is bool
+        && optionalBool(data, 'missingFromLatestExport')
+        && data.needsAnalysis is bool
+        && isFilledText(data.importId, 128);
+    }
+
+    function validChunk(data) {
+      return data.keys().hasOnly(['index', 'messages', 'charCount', 'updatedAt'])
+        && data.keys().hasAll(['index', 'messages', 'charCount', 'updatedAt'])
+        && isCount(data.index)
+        && data.messages is list
+        && data.messages.size() > 0
+        && data.messages.size() <= 500
+        && isCount(data.charCount)
+        && data.charCount <= 300000
+        && data.updatedAt == request.time;
+    }
+
+    function validActivityLog(data) {
+      return data.keys().hasOnly(['type', 'createdAt', 'targetId', 'summary'])
+        && data.keys().hasAll(['type', 'createdAt'])
+        && data.type in [
+          'import_started', 'import_completed', 'task_approved',
+          'task_dismissed', 'task_edited', 'task_completed', 'data_deleted'
+        ]
+        && data.createdAt == request.time
+        && optionalText(data, 'targetId', 128)
+        && optionalText(data, 'summary', 300);
+    }
+
+    function priorityRankMatches(data) {
+      return (data.priority == 'low' && data.priorityRank == 1)
+        || (data.priority == 'medium' && data.priorityRank == 2)
+        || (data.priority == 'high' && data.priorityRank == 3);
+    }
+
+    // A user may change only their review decisions on a task. Evidence,
+    // confidence, category and source references stay server-owned.
+    function validTaskReview(data) {
+      return changedKeys().hasOnly([
+          'status', 'priority', 'priorityRank', 'title', 'description',
+          'projectId', 'remindOn', 'lastReviewedAt', 'updatedAt'
+        ])
+        && data.status in [
+          'awaiting_review', 'approved', 'in_progress', 'completed', 'dismissed'
+        ]
+        && priorityRankMatches(data)
+        && isFilledText(data.title, 300)
+        && isText(data.description, 4000)
+        && optionalText(data, 'projectId', 128)
+        && optionalTimestamp(data, 'remindOn')
+        && optionalTimestamp(data, 'lastReviewedAt')
+        && data.updatedAt == request.time;
+    }
+
+    function validProjectEdit(data) {
+      return changedKeys().hasOnly(['name', 'description', 'archived', 'updatedAt'])
+        && isFilledText(data.name, 200)
+        && isText(data.description, 2000)
+        && optionalBool(data, 'archived')
+        && data.updatedAt == request.time;
+    }
+
+    // ---- Collections ------------------------------------------------------
+
+    match /users/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+      allow create: if isVerifiedOwner(uid)
+        && validUser(incoming()) && stampedOnCreate();
+      allow update: if isVerifiedOwner(uid)
+        && validUser(incoming()) && stampedOnUpdate();
+      // Account deletion runs through an authenticated server route.
+      allow delete: if false;
+
+      match /sources/{sourceId} {
+        allow read: if isOwner(uid);
+        allow create: if isVerifiedOwner(uid)
+          && validSource(incoming()) && stampedOnCreate();
+        allow update: if isVerifiedOwner(uid)
+          && validSource(incoming()) && stampedOnUpdate()
+          && unchanged(['platform']);
+        allow delete: if isVerifiedOwner(uid);
+      }
+
+      match /sourceIndex/{shardId} {
+        allow read: if isOwner(uid);
+        allow create: if isVerifiedOwner(uid) && validSourceIndex(incoming());
+        allow update: if isVerifiedOwner(uid)
+          && validSourceIndex(incoming()) && unchanged(['sourceId']);
+        allow delete: if isVerifiedOwner(uid);
+      }
+
+      match /imports/{importId} {
+        allow read: if isOwner(uid);
+        allow create: if isVerifiedOwner(uid)
+          && validImport(incoming()) && stampedOnCreate();
+        allow update: if isVerifiedOwner(uid)
+          && validImport(incoming()) && stampedOnUpdate()
+          && unchanged(['sourceId', 'fingerprint']);
+        allow delete: if isVerifiedOwner(uid);
+      }
+
+      match /conversations/{conversationId} {
+        allow read: if isOwner(uid);
+        allow create: if isVerifiedOwner(uid)
+          && validConversation(incoming()) && stampedOnCreate()
+          && !('analysis' in incoming());
+        allow update: if isVerifiedOwner(uid)
+          && validConversation(incoming()) && stampedOnUpdate()
+          && unchanged(['analysis', 'sourceId', 'sourceConversationId']);
+        allow delete: if isVerifiedOwner(uid);
+
+        match /chunks/{chunkId} {
+          allow read: if isOwner(uid);
+          allow create, update: if isVerifiedOwner(uid) && validChunk(incoming());
+          allow delete: if isVerifiedOwner(uid);
+        }
+      }
+
+      match /projects/{projectId} {
+        allow read: if isOwner(uid);
+        allow create: if false;
+        allow update: if isVerifiedOwner(uid) && validProjectEdit(incoming());
+        allow delete: if isVerifiedOwner(uid);
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isOwner(uid);
+        allow create: if false;
+        allow update: if isVerifiedOwner(uid) && validTaskReview(incoming());
+        allow delete: if isVerifiedOwner(uid);
+      }
+
+      // Server-written. The usage counter enforces the AI quota, so a client
+      // must never be able to reset it.
+      match /jobs/{jobId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /usage/{day} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /reports/{isoWeek} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /activityLogs/{activityId} {
+        allow read: if isOwner(uid);
+        allow create: if isVerifiedOwner(uid) && validActivityLog(incoming());
+        allow update: if false;
+        allow delete: if isVerifiedOwner(uid);
+      }
+    }
+
+    // Any path not matched above has no allow rule and is therefore denied.
+    // This includes collection-group queries and unknown subcollections.
+  }
+}
