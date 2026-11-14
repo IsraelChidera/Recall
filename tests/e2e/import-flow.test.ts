@@ -274,7 +274,7 @@ it("analyses the conversations and shows findings with their quotes", async () =
 });
 
 it("reviews a discovery in the inbox: edit, approve, undo, approve", async () => {
-  await clickButton("Review in the Inbox");
+  await page.click('main a[href="/inbox"]');
   await page.waitForFunction(() => location.pathname === "/inbox");
   await waitForText("I will finish the synthetic migration report by Friday.");
   await waitForText("Open in Claude");
