@@ -49,8 +49,15 @@ async function storedCount(path: string): Promise<number> {
   return body.documents?.length ?? 0;
 }
 
-const waitForText = (text: string, timeout = 60_000) =>
-  page.waitForFunction((needle) => document.body.innerText.includes(needle), { timeout }, text);
+/** Waits for text to appear; on timeout, reports what the page showed instead. */
+async function waitForText(text: string, timeout = 60_000) {
+  try {
+    await page.waitForFunction((needle) => document.body.innerText.includes(needle), { timeout }, text);
+  } catch {
+    const shown = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(0, 600));
+    throw new Error(`Timed out waiting for "${text}". The page showed: ${shown}`);
+  }
+}
 
 async function clickButton(label: string) {
   const handle = await page.waitForFunction(
@@ -193,7 +200,7 @@ it("saves only what is new or changed from a newer export", async () => {
 
 it("asks for consent before any AI request is made", async () => {
   await page.goto(`${BASE}/dashboard`);
-  await waitForText("Before Recall reads your conversations with AI");
+  await waitForText("Before Recall reads your conversations with AI", 20_000);
   const disabled = await page.evaluate(
     () => [...document.querySelectorAll("button")].find((b) => b.textContent === "Allow AI analysis")?.disabled,
   );
