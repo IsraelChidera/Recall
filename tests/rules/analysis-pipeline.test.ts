@@ -6,7 +6,7 @@ import { getFirestore, Timestamp, type Firestore as AdminFirestore } from "fireb
 import type { Firestore } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import type { AIConfig } from "@/lib/ai/config";
+import { usageDay, type AIConfig } from "@/lib/ai/config";
 import { FakeProvider } from "@/lib/ai/fake";
 import { EXTRACTION_SYSTEM, SCREENING_SYSTEM } from "@/lib/ai/prompts";
 import {
@@ -49,6 +49,7 @@ const config: AIConfig = {
   bulkModel: "fake",
   qualityModel: "fake",
   dailyRequestCap: 450,
+  userDailyRequestCap: 450,
   requestsPerMinute: 10,
   requestsPerAdvance: 4,
 };
@@ -420,7 +421,7 @@ describe("quota, failures and resuming", () => {
     ];
     await importConversations(promises.map((text, i) => commitment(i + 1, text)));
     const first = new FakeProvider();
-    const paused = await runJob(deps(first, { dailyRequestCap: 4 }));
+    const paused = await runJob(deps(first, { userDailyRequestCap: 4 }));
     expect(paused.status).toBe("paused_quota");
     expect(paused.message).toMatch(/allowance|limit/i);
     expect(first.requests).toHaveLength(4);
@@ -429,18 +430,69 @@ describe("quota, failures and resuming", () => {
     expect(partial).toBe(3);
 
     // Calling again while paused does nothing.
-    const still = await advanceJob(deps(first, { dailyRequestCap: 4 }), UID, paused.id, true);
+    const still = await advanceJob(deps(first, { userDailyRequestCap: 4 }), UID, paused.id, true);
     expect(still.status).toBe("paused_quota");
     expect(first.requests).toHaveLength(4);
 
     // The next day (a higher cap here) the same job continues.
     const second = new FakeProvider();
-    const resumed = await runJob(deps(second, { dailyRequestCap: 100 }));
+    const resumed = await runJob(deps(second, { userDailyRequestCap: 100 }));
     expect(resumed.id).toBe(paused.id);
     expect(resumed.status).toBe("completed");
     expect(resumed.progress.analysed).toBe(8);
     expect(await tasks()).toHaveLength(8);
     expect(second.requests.filter((request) => request.system === EXTRACTION_SYSTEM)).toHaveLength(5);
+  });
+
+  it("holds each user to their own limit while the shared total is counted for everyone", async () => {
+    await giveConsent();
+    await importConversations(
+      [
+        "I will translate the onboarding handbook into Yoruba.",
+        "I will repaint the kitchen cupboards green.",
+        "I will benchmark three vector databases for search.",
+      ].map((text, i) => commitment(i + 1, text)),
+    );
+    const provider = new FakeProvider();
+    const paused = await runJob(deps(provider, { userDailyRequestCap: 2 }));
+    expect(paused.status).toBe("paused_quota");
+    expect(paused.message).toMatch(/your AI allowance/);
+    expect(paused.usage).toMatchObject({ aiRequests: 2, dailyCap: 2 });
+
+    const day = usageDay(new Date());
+    expect((await db.doc(`users/${UID}/usage/${day}`).get()).data()?.aiRequests).toBe(2);
+    expect((await db.doc(`usage/${day}`).get()).data()?.aiRequests).toBe(2);
+  });
+
+  it("stops everyone when the shared daily total is reached, whatever their own limit", async () => {
+    await giveConsent();
+    await importConversations([commitment(1, "I will translate the onboarding handbook into Yoruba.")]);
+    // Other users have already used the whole shared allowance today.
+    await db.doc(`usage/${usageDay(new Date())}`).set({ aiRequests: 10 });
+
+    const provider = new FakeProvider();
+    const paused = await runJob(deps(provider, { dailyRequestCap: 10, userDailyRequestCap: 5 }));
+    expect(paused.status).toBe("paused_quota");
+    expect(paused.message).toMatch(/shared AI allowance/);
+    expect(provider.requests).toHaveLength(0);
+    expect(paused.usage.aiRequests).toBe(0);
+    expect(await tasks()).toHaveLength(0);
+  });
+
+  it("leaves a user only what remains of the shared total", async () => {
+    await giveConsent();
+    await importConversations(
+      ["I will repaint the kitchen cupboards green.", "I will renew my passport before July."].map(
+        (text, i) => commitment(i + 1, text),
+      ),
+    );
+    await db.doc(`usage/${usageDay(new Date())}`).set({ aiRequests: 8 });
+    const provider = new FakeProvider();
+    const paused = await runJob(deps(provider, { dailyRequestCap: 10, userDailyRequestCap: 100 }));
+    expect(provider.requests).toHaveLength(2);
+    expect(paused.status).toBe("paused_quota");
+    expect(paused.message).toMatch(/shared AI allowance/);
+    expect((await db.doc(`usage/${usageDay(new Date())}`).get()).data()?.aiRequests).toBe(10);
   });
 
   it("stops when the provider reports its own daily quota", async () => {

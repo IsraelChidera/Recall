@@ -241,7 +241,7 @@ it("analyses the conversations and shows findings with their quotes", async () =
   expect(await storedCount("projects")).toBe(1);
   expect(await storedCount("usage")).toBe(1);
   expect(await storedCount("jobs")).toBe(1);
-  expect(await page.evaluate(() => document.body.innerText)).toMatch(/\d+ of 450 AI requests used today/);
+  expect(await page.evaluate(() => document.body.innerText)).toMatch(/\d+ of 150 AI requests used today/);
 });
 
 it("deletes everything on request, including what was discovered", async () => {

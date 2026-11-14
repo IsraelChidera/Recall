@@ -356,6 +356,17 @@ describe("6. owners can access their own authorised records", () => {
 });
 
 describe("7. unknown paths are denied", () => {
+  it("denies every client the shared usage counter", async () => {
+    await seed(async (db) => {
+      await setDoc(doc(db, "usage/2026-11-14"), { aiRequests: 3 });
+    });
+    for (const db of [verified(ALICE), unverified(ALICE), anonymous()]) {
+      await assertFails(getDoc(doc(db, "usage/2026-11-14")));
+      await assertFails(setDoc(doc(db, "usage/2026-11-14"), { aiRequests: 0 }));
+      await assertFails(deleteDoc(doc(db, "usage/2026-11-14")));
+    }
+  });
+
   it("denies top-level collections other than users", async () => {
     const db = verified(ALICE);
     await assertFails(setDoc(doc(db, "admin/config"), { open: true }));

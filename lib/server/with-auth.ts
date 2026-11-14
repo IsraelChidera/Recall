@@ -25,6 +25,11 @@ type Options = {
   allowedEmails?: () => string[];
 };
 
+/** `*` in the list admits every verified account; each is still held to its daily limit. */
+export function isAllowed(allowed: string[], email: string): boolean {
+  return allowed.includes("*") || allowed.includes(email);
+}
+
 function json(status: number, error: string): Response {
   return Response.json({ error }, { status, headers: { "Cache-Control": "no-store" } });
 }
@@ -75,7 +80,7 @@ export function withAuth<Context>(
     const auth: AuthContext = {
       uid: decoded.uid,
       email,
-      aiAllowed: email !== null && allowedEmails().includes(email),
+      aiAllowed: email !== null && isAllowed(allowedEmails(), email),
     };
 
     return handler(request, auth, context);

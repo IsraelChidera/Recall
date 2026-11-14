@@ -51,7 +51,7 @@ import {
   type JobStatus,
   type JobView,
 } from "./types";
-import { recordRequest, requestsUsedToday } from "./usage";
+import { allowanceToday, recordRequest, requestsUsedToday } from "./usage";
 
 /**
  * Resumable analysis jobs.
@@ -124,7 +124,7 @@ async function toView(
     usage: {
       day: usageDay(deps.now()),
       aiRequests: await requestsUsedToday(deps, uid),
-      dailyCap: deps.config.dailyRequestCap,
+      dailyCap: deps.config.userDailyRequestCap,
     },
   };
 }
@@ -194,17 +194,26 @@ type Run = {
   job: JobData;
   /** Model requests this call may still make. */
   budget: number;
-  /** Requests left in today's allowance. */
-  remainingToday: number;
+  /** Requests left today under this user's own limit. */
+  userLeft: number;
+  /** Requests left today in the total shared by all users. */
+  globalLeft: number;
   startedAt: number;
 };
+
+/** Says which of the two daily limits stopped the job. The shared one takes precedence. */
+function quotaMessage(run: Run): string {
+  return run.globalLeft <= 0
+    ? "Recall's shared AI allowance for today is used up. Analysis resumes after the daily reset."
+    : "You have used your AI allowance for today. Analysis resumes after the daily reset.";
+}
 
 /** One model request: paced, counted, and with quota and failures classified. */
 async function ask<T>(run: Run, request: StructuredRequest<T>): Promise<T> {
   const { deps, job } = run;
-  if (run.remainingToday <= 0) {
+  if (run.userLeft <= 0 || run.globalLeft <= 0) {
     job.status = "paused_quota";
-    job.message = "Today's AI allowance is used up. Analysis resumes after the daily reset.";
+    job.message = quotaMessage(run);
     throw new StopAdvance(0);
   }
   if (run.budget <= 0) throw new StopAdvance(0);
@@ -220,7 +229,8 @@ async function ask<T>(run: Run, request: StructuredRequest<T>): Promise<T> {
 
   try {
     const response = await deps.provider.generateStructured(request);
-    run.remainingToday--;
+    run.userLeft--;
+    run.globalLeft--;
     job.progress.aiRequests++;
     job.retryCount = 0;
     await recordRequest(deps, run.uid, response.usage);
@@ -249,7 +259,8 @@ async function ask<T>(run: Run, request: StructuredRequest<T>): Promise<T> {
     }
     if (error instanceof AIResponseError) {
       // The request was made and counts against the allowance.
-      run.remainingToday--;
+      run.userLeft--;
+    run.globalLeft--;
       job.progress.aiRequests++;
       await recordRequest(deps, run.uid, { inputTokens: 0, outputTokens: 0 });
     }
@@ -365,9 +376,9 @@ async function extractNext(run: Run): Promise<boolean> {
       ? allWindows
       : [allWindows[0]!, ...allWindows.slice(allWindows.length - (perCall - 1))];
 
-  if (windows.length > run.remainingToday) {
+  if (windows.length > Math.min(run.userLeft, run.globalLeft)) {
     job.status = "paused_quota";
-    job.message = "Today's AI allowance is used up. Analysis resumes after the daily reset.";
+    job.message = quotaMessage(run);
     throw new StopAdvance(0);
   }
   // If this call cannot afford the whole conversation, the next one can.
@@ -581,13 +592,14 @@ export async function advanceJob(
     return toView(deps, uid, jobId, job, job.status === "running" ? 3_000 : 0);
   }
 
-  const used = await requestsUsedToday(deps, uid);
+  const allowance = await allowanceToday(deps, uid);
   const run: Run = {
     deps,
     uid,
     job,
     budget: deps.config.requestsPerAdvance,
-    remainingToday: Math.max(0, deps.config.dailyRequestCap - used),
+    userLeft: allowance.userLeft,
+    globalLeft: allowance.globalLeft,
     startedAt: deps.now().getTime(),
   };
 

@@ -2,6 +2,31 @@
 
 Decisions and verified results per milestone. Newest milestone first.
 
+## Per-user AI limits (15 November 2026)
+
+**Why.** The Gemini quota belongs to the project, so one daily cap per user does not protect it once there is more than one user: each could use the whole allowance.
+
+**What changed**
+
+- **Two daily limits.** `AI_DAILY_REQUEST_CAP` (default 450) is shared by all users. `AI_USER_DAILY_REQUEST_CAP` (default 150) applies to each user and is never more than the shared cap. A request must fit under both.
+- **Two counters,** written together in one batch: `users/{uid}/usage/{day}` (readable by its owner) and top-level `usage/{day}` (no client access; the rules deny it because the path is not listed, and a test asserts it).
+- **The pause message says which limit was reached.**
+- **`ALLOWED_EMAILS=*`** admits every verified account. Empty still means nobody.
+
+**Limits that exist today**
+
+| Limit | Default | Where |
+| --- | --- | --- |
+| AI requests per user per day | 150 | `AI_USER_DAILY_REQUEST_CAP` |
+| AI requests for all users per day | 450 | `AI_DAILY_REQUEST_CAP` |
+| AI requests per minute, per running job | 10 | `AI_REQUESTS_PER_MINUTE` |
+| AI requests per server call | 4 | `AI_REQUESTS_PER_ADVANCE` |
+| Conversations indexed per user | 16,000 | `lib/import/plan.ts`, enforced in `firestore.rules` |
+| Upload size | 400 MB per ZIP, 20 files | `lib/import/limits.ts` |
+| Password length | 10 characters minimum | sign-up form |
+
+**Known gap.** The per-minute pace is per job. Several users analysing at the same moment can together exceed the provider's per-minute limit; the provider then answers 429 and each job waits and retries, so work is delayed, not lost. The shared daily cap is checked when a server call starts, so concurrent users can overshoot it by a few requests.
+
 ## Milestone 6: AI intelligence (15 November 2026)
 
 **Objective.** Discover unfinished work in the saved conversations with an AI model, store only what can be verified against the source text, and stay inside the free quota.
