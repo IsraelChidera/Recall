@@ -32,7 +32,7 @@ describe("API routes", () => {
     expect(exported.length).toBeGreaterThan(0);
     for (const method of exported) {
       expect(source, `${method} in ${file}`).toMatch(
-        new RegExp(`export\\s+const\\s+${method}\\s*=\\s*withAuth\\(`),
+        new RegExp(`export\\s+const\\s+${method}\\s*=\\s*withAuth\\s*[<(]`),
       );
     }
   });
