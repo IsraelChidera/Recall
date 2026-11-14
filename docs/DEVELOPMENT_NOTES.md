@@ -2,6 +2,35 @@
 
 Decisions and verified results per milestone. Newest milestone first.
 
+## Milestone 5: Data persistence (14 November 2026)
+
+**Objective.** Save imported conversations to Firestore from the browser, idempotently and resumably, and let the user see and delete what is saved.
+
+**Decisions**
+
+- **Planning is pure** (`lib/import/plan.ts`): classify against the index, plan counts, shard ids, chunking. No Firestore imports, so it is unit-tested directly.
+- **The writer runs under the user's security rules** (`lib/import/firestore-writer.ts`), not through the server. Its emulator tests run with rules enabled, so every document it writes is proven to satisfy them.
+- **Atomic batches.** Up to 20 conversations, their chunks, the touched index shards and the import's progress commit together.
+- **Updates preserve** `createdAt` and the user's `excluded` choice, set `needsAnalysis`, and delete chunks the shorter version no longer needs (the previous chunk count is read first; one read per changed conversation).
+- **An identical re-import performs zero writes**, not even an import record.
+- **Deletion is paged and atomic per page** (conversations, chunks and index entries together), so stopping midway leaves a consistent state and repeating continues.
+- **No browser dialogs.** Deletion is confirmed inline.
+
+**Cost of the real export (62 conversations).** About 62 conversation writes, about 62 chunk writes, up to 8 index writes per batch over 4 batches, and a handful for the import, source and activity log: roughly 165 writes and under 20 reads.
+
+**How it was verified**
+
+The Firestore emulator could not be downloaded where this was written, so everything that needs it ran in GitHub Actions:
+
+- `security-rules` job: 9 writer tests (first import, identical re-import, newer export, preserved fields, shrinking conversation, interrupted and resumed import, delete one import, delete everything across pages) alongside the 46 rules tests.
+- `browser` job (new): headless Chrome against a production build and both emulators. Sign in, profile creation, preview, save, identical re-import, incremental import and delete-all, each checked against the documents actually stored, plus an assertion that the browser console logged no errors.
+
+**Not verified**
+
+- The saving and history screens were exercised by the browser tests but not looked at by eye. Layout problems there would not have been caught.
+- Behaviour when the connection drops mid-save. The Firestore SDK queues writes while offline, so the progress bar would stall until the connection returns.
+- Anything against the real Firebase project.
+
 ## Milestone 4: Claude import (14 November 2026)
 
 **Objective.** Read a Claude export in the browser: validate the archives, stream-parse them, normalise conversations, de-duplicate, and show progress and a preview. Nothing is written to Firestore yet; that is Milestone 5.

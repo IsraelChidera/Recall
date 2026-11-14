@@ -4,7 +4,7 @@ Your AI conversations remember what you discussed. Recall makes sure you do some
 
 Recall analyses a Claude data export, finds unfinished projects and commitments, backs each one with a quote from the source conversation, and helps you resume the work. It runs entirely on free tiers: Next.js on Vercel Hobby, Firebase Authentication and Cloud Firestore on the Spark plan, and the Gemini Developer API free tier.
 
-**Status:** Milestone 4 of 10 (Claude import). You can sign in and preview what your Claude export contains. Saving it arrives next.
+**Status:** Milestone 5 of 10 (data persistence). You can sign in, preview a Claude export, save it to your private workspace, re-import newer exports without duplicates, and delete what you saved. Discovering unfinished work arrives next.
 
 ## Requirements
 
@@ -32,7 +32,8 @@ Open http://localhost:3000.
 | `npm run typecheck` | TypeScript, no emit |
 | `npm test` | Vitest, single run |
 | `npm run test:watch` | Vitest in watch mode |
-| `npm run test:rules` | Firestore Security Rules tests on the emulator (needs Java 21) |
+| `npm run test:rules` | Security rules and import writer tests on the Firestore emulator (needs Java 21) |
+| `npm run test:e2e` | Browser tests against a production build and the emulators (run `npm run build` first, in emulator mode) |
 | `npm run emulators` | Auth and Firestore emulators for local development |
 
 ## Local development with emulators
