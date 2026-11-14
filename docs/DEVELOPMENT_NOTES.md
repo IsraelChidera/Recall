@@ -2,6 +2,43 @@
 
 Decisions and verified results per milestone. Newest milestone first.
 
+## Milestone 4: Claude import (14 November 2026)
+
+**Objective.** Read a Claude export in the browser: validate the archives, stream-parse them, normalise conversations, de-duplicate, and show progress and a preview. Nothing is written to Firestore yet; that is Milestone 5.
+
+**What the real export looks like**
+
+Recorded in `ARCHITECTURE.md` under amendments. The structure was obtained with `scripts/inspect-claude-export.mjs`, which prints key names, types, counts and lengths only. The real archive was then run through the pipeline in Node, printing counts only: 62 conversations parsed, 0 skipped, 0 issues, the three non-conversation ZIPs ignored.
+
+**Decisions**
+
+- **Source adapters.** `lib/sources/types.ts` defines the contract; `lib/sources/claude` is the only implementation. The pipeline in `lib/import/parse-export.ts` knows nothing about Claude.
+- **Streaming.** JSZip decompresses `conversations.json` as chunks. `JsonArrayElementSplitter` cuts the byte stream into top-level array elements, so one conversation is buffered at a time. The reader pauses until each conversation has been handled.
+- **Worker and backpressure.** `workers/import.worker.ts` posts batches of up to 20 conversations (or 1.5 million characters) and waits for an acknowledgement. Milestone 5 plugs the Firestore writer into `runImport`'s `onBatch`.
+- **Active thread.** Unknown senders and malformed messages are dropped first; then the path from the most recent leaf to the root is kept. If no parent links resolve, export order is used.
+- **Text kept.** `text` content blocks only. Thinking, tool calls and tool results are dropped. Assistant replies are cut to 4,000 characters; human messages are kept up to 50,000.
+- **Attachments are counted, not imported.** Pasted documents arrive as attachments with extracted text. A commitment stated only inside a pasted document will not be seen. To revisit if extraction misses things.
+- **Content hash** covers the source `updated_at`, message count, last message id and total text length. **Import fingerprint** is a hash of the sorted conversation ids and hashes, so it is independent of file names and order.
+- **Duplicates across files.** An identical copy is dropped. A differing copy is passed on, so the later one wins when written.
+- **Failure policy.** A malformed conversation is skipped and listed (reason and id only, never text). A non-conversation ZIP is ignored. A non-ZIP or corrupt file is rejected. A truncated file keeps what was read and is marked as a problem.
+- **Limits** are in `lib/import/limits.ts`: 400 MB per ZIP, 64 MB per conversation, 2 GB decompressed per entry, 20 files.
+
+**Fixed while building**
+
+- Thread selection returned nothing when a message from an unknown sender was the latest leaf. Senders are now filtered before the thread is traced.
+- The ZIP signature check used `instanceof`, which fails for bytes created in another realm. It now duck-types.
+
+**Verified**
+
+- Unit tests for the splitter (chunk boundaries at every size, limits, truncation), the adapter and the pipeline, including a 1,000-conversation archive.
+- In headless Chrome, production build: a 1,000-conversation synthetic archive (4.3 MB compressed) plus a non-conversation ZIP and a non-ZIP file. Parsed in about 1.4 seconds; page heap about 28 MB afterwards; the worker loads under the Content Security Policy with no console errors.
+
+**Not verified**
+
+- Archives in the hundreds of megabytes. The largest tested is tens of megabytes of JSON.
+- The real export in a browser. It was run through the same pipeline in Node only.
+- Safari and Firefox.
+
 ## Milestone 3: Authentication and security (14 November 2026)
 
 **Objective.** Accounts, a guarded application shell, Firestore Security Rules for the whole schema, the server-side auth guard, and tests for all of it.

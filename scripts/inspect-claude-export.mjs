@@ -35,6 +35,7 @@ const MAX_PARSE_BYTES = 450 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 const URL_LIKE = /^https?:\/\//i;
+const IDENTIFIER_LIKE = /^[a-z][a-z0-9_/-]*$/;
 
 function stringFormat(value) {
   if (value.length === 0) return "empty";
@@ -92,7 +93,14 @@ function walk(value, path, key, stats) {
   if (type === "string") {
     track(stat.strLen, value.length);
     bump(stat.formats, stringFormat(value));
-    if (STRUCTURAL_KEYS.has(key) && value.length <= MAX_VALUE_LENGTH && !stat.valuesOverflow) {
+    // Only identifier-like values are printed, so a free-text field that
+    // happens to share a structural key name (an email "sender") stays hidden.
+    if (
+      STRUCTURAL_KEYS.has(key) &&
+      value.length <= MAX_VALUE_LENGTH &&
+      IDENTIFIER_LIKE.test(value) &&
+      !stat.valuesOverflow
+    ) {
       stat.values.add(value);
       if (stat.values.size > MAX_DISTINCT) {
         stat.values.clear();

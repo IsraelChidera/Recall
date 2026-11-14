@@ -1,7 +1,7 @@
 "use client";
 
 import { signOut } from "firebase/auth";
-import { LayoutDashboard, LogOut } from "lucide-react";
+import { LayoutDashboard, LogOut, Upload } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -13,7 +13,10 @@ import { getFirebaseServices } from "@/lib/firebase/client";
 import { cn } from "@/lib/utils";
 
 // Screens are added here as their milestones land.
-const NAV = [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard }];
+const NAV = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/import", label: "Import", icon: Upload },
+];
 
 function ShellSkeleton() {
   return (

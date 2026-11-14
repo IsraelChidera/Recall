@@ -1,7 +1,10 @@
 "use client";
 
 import { Inbox } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
+
+import { buttonVariants } from "@/components/ui/button";
 
 import { authFetch } from "@/lib/auth/api-client";
 
@@ -41,10 +44,12 @@ export default function DashboardPage() {
         <Inbox className="size-5 text-muted-foreground" aria-hidden="true" />
         <h2 className="text-base font-semibold">Nothing imported yet</h2>
         <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-          Recall finds work by reading your Claude export. The Import Centre arrives in the
-          next milestone. Until then, your account is set up and your data space is private
-          to you.
+          Recall finds work by reading your Claude export. Start by previewing what your
+          export contains.
         </p>
+        <Link href="/import" className={buttonVariants({ size: "sm" })}>
+          Go to Import
+        </Link>
       </section>
 
       <p className="text-xs text-muted-foreground" aria-live="polite">

@@ -4,7 +4,7 @@ Your AI conversations remember what you discussed. Recall makes sure you do some
 
 Recall analyses a Claude data export, finds unfinished projects and commitments, backs each one with a quote from the source conversation, and helps you resume the work. It runs entirely on free tiers: Next.js on Vercel Hobby, Firebase Authentication and Cloud Firestore on the Spark plan, and the Gemini Developer API free tier.
 
-**Status:** Milestone 3 of 10 (authentication and security). You can create an account, confirm your email and sign in. Importing arrives next.
+**Status:** Milestone 4 of 10 (Claude import). You can sign in and preview what your Claude export contains. Saving it arrives next.
 
 ## Requirements
 
@@ -75,6 +75,10 @@ Read the output before sharing it.
 app/            routes and layouts (App Router)
 components/ui/  shadcn/ui primitives
 components/auth/ and components/app/  auth state, forms, guarded app shell
+lib/domain/     source-independent types, schemas and hashing
+lib/sources/    one adapter per AI platform (Claude today)
+lib/import/     browser-side archive validation, streaming parser, worker client
+workers/        the import Web Worker
 lib/auth/       client auth helpers (errors, authenticated fetch, profile)
 lib/env/        validated environment access (client and server)
 lib/firebase/   web SDK and Admin SDK initialisation
@@ -84,6 +88,7 @@ tests/rules/    security rules tests (emulator)
 lib/utils.ts    shared helpers
 scripts/        local tooling
 tests/unit/     Vitest unit tests
+tests/fixtures/ synthetic Claude export generator
 docs/           architecture and development notes
 ```
 
