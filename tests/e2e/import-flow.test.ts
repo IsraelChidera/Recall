@@ -219,6 +219,14 @@ it("asks for consent before any AI request is made", async () => {
   expect(await storedCount("jobs")).toBe(0);
 
   lap("counts read");
+  const short = (url: string) => url.replace(/^https?:\/\/[^/]+/, "").replace(/\?.*$/, "").slice(-70);
+  page.on("request", (request) => {
+    if (/8080|\/api\//.test(request.url())) lap(`-> ${request.method()} ${short(request.url())}`);
+  });
+  page.on("requestfinished", (request) => {
+    if (/8080|\/api\//.test(request.url())) lap(`<- ${short(request.url())}`);
+  });
+  page.on("requestfailed", (request) => lap(`xx ${short(request.url())} ${request.failure()?.errorText}`));
   await page.click("input[type=checkbox]");
   await clickButton("Allow AI analysis");
   lap("clicked allow");
