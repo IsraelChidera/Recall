@@ -50,7 +50,7 @@ async function storedCount(path: string): Promise<number> {
 }
 
 /** Waits for text to appear; on timeout, reports what the page showed instead. */
-async function waitForText(text: string, timeout = 60_000) {
+async function waitForText(text: string, timeout = 120_000) {
   try {
     await page.waitForFunction((needle) => document.body.innerText.includes(needle), { timeout }, text);
   } catch {
@@ -65,7 +65,7 @@ async function clickButton(label: string) {
       [...document.querySelectorAll("button")].find(
         (button) => button.textContent?.trim() === needle && !button.disabled,
       ),
-    { timeout: 30_000 },
+    { timeout: 120_000 },
     label,
   );
   await (handle.asElement() as ElementHandle<Element>).click();
@@ -127,24 +127,14 @@ beforeAll(async () => {
   });
   page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 1000 });
+  // The Firestore emulator sometimes holds a streamed request for close to a
+  // minute before answering. Waits are sized so that slows a run down
+  // without failing it.
+  page.setDefaultTimeout(120_000);
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${String(error)}`));
-  const started = new Map<unknown, number>();
-  const t0 = Date.now();
-  const brief = (url: string) => url.replace(/^https?:\/\/[^/]+/, "").replace(/\?.*$/, (q) => (/TYPE=([a-z]+)/.exec(q)?.[0] ?? "") + (/SID=/.test(q) ? " SID" : "")).slice(0, 110);
-  page.on("request", (request) => started.set(request, Date.now()));
-  const done = (kind: string) => (request: { url(): string; method(): string }) => {
-    const begin = started.get(request);
-    if (begin === undefined) return;
-    const took = Date.now() - begin;
-    if (took > 3000 || kind === "failed") {
-      console.log(`SLOW ${kind} +${((begin - t0) / 1000).toFixed(1)}s took=${took}ms ${request.method()} ${new URL(request.url()).port} ${brief(request.url())}`);
-    }
-  };
-  page.on("requestfinished", done("finished"));
-  page.on("requestfailed", done("failed"));
 
   await page.goto(`${BASE}/login`);
   await page.waitForSelector("#email");
@@ -220,7 +210,7 @@ it("saves only what is new or changed from a newer export", async () => {
 
 it("asks for consent before any AI request is made", async () => {
   await page.goto(`${BASE}/dashboard`);
-  await waitForText("Before Recall reads your conversations with AI", 20_000);
+  await waitForText("Before Recall reads your conversations with AI");
   const disabled = await page.evaluate(
     () => [...document.querySelectorAll("button")].find((b) => b.textContent === "Allow AI analysis")?.disabled,
   );
@@ -234,15 +224,11 @@ it("asks for consent before any AI request is made", async () => {
 });
 
 it("lets the user leave a conversation out", async () => {
-  const t0 = Date.now();
   await page.click("details > summary");
   const first = await page.waitForSelector("details input[type=checkbox]");
-  const t1 = Date.now();
   await first!.click();
   await waitForText("1 left out");
-  const t2 = Date.now();
   await waitForText("61 conversations are waiting to be analysed");
-  console.log(`TIMING list=${t1 - t0}ms toggle-ui=${t2 - t1}ms overview=${Date.now() - t2}ms`);
 });
 
 it("analyses the conversations and shows findings with their quotes", async () => {
