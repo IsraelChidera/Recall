@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rules": "firebase emulators:exec --only firestore --project demo-recall \"vitest run --config vitest.rules.config.mts\"",
-    "emulators": "firebase emulators:start --only auth,firestore --project demo-recall"
+    "emulators": "firebase emulators:start --only auth,firestore --project demo-recall",
+    "test:e2e": "firebase emulators:exec --only auth,firestore --project demo-recall \"vitest run --config vitest.e2e.config.mts\""
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
@@ -41,6 +42,7 @@
     "eslint-config-next": "16.4.6",
     "firebase-tools": "^15.36.0",
     "jsdom": "^31.0.1",
+    "puppeteer-core": "^25.17.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5",
     "vite-tsconfig-paths": "^6.1.1",
