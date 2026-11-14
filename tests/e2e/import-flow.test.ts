@@ -65,6 +65,16 @@ async function shot(name: string) {
   if (!dir) return;
   mkdirSync(dir, { recursive: true });
   await page.screenshot({ path: join(dir, `${name}.png`), fullPage: true });
+  // Optionally also write a small copy into the log, for reviewing a CI run
+  // from somewhere the artifact store cannot be reached. Synthetic data only.
+  if (process.env.E2E_SCREENSHOTS_TO_LOG === "true") {
+    const jpeg = Buffer.from(await page.screenshot({ type: "jpeg", quality: 55, fullPage: true })).toString("base64");
+    const size = 3000;
+    const parts = Math.ceil(jpeg.length / size);
+    for (let part = 0; part < parts; part++) {
+      console.log(`SHOT ${name} ${part + 1}/${parts} ${jpeg.slice(part * size, (part + 1) * size)}`);
+    }
+  }
 }
 
 type StoredDoc = { name: string; fields?: Record<string, { stringValue?: string }> };
