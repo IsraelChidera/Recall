@@ -41,19 +41,21 @@ async function loadOverview(uid: string): Promise<Overview> {
   const tasks = collection(db, "users", uid, "tasks");
   const awaiting = query(tasks, where("status", "==", "awaiting_review"));
 
-  const [session, profile, total, waiting, toReview, sample] = await Promise.all([
+  const [session, profile] = await Promise.all([
     authFetch("/api/session").then(async (response) => {
       if (!response.ok) throw new Error("session");
       return (await response.json()) as { aiAllowed: boolean };
     }),
     getDoc(doc(db, "users", uid)),
-    getCountFromServer(conversations),
-    getCountFromServer(
-      query(conversations, where("needsAnalysis", "==", true), where("excluded", "==", false)),
-    ),
-    getCountFromServer(awaiting),
-    getDocs(query(awaiting, limit(5))),
   ]);
+  // One after another, not in parallel: these are separate requests, and a
+  // burst of them competes with the SDK's own streams for connections.
+  const total = await getCountFromServer(conversations);
+  const waiting = await getCountFromServer(
+    query(conversations, where("needsAnalysis", "==", true), where("excluded", "==", false)),
+  );
+  const toReview = await getCountFromServer(awaiting);
+  const sample = await getDocs(query(awaiting, limit(5)));
 
   const data = profile.data();
   return {
