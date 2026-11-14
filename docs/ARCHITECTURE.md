@@ -25,6 +25,11 @@ The proposal's schema changes (embedded evidence, no reminders collection, five 
 | 14 Nov 2026 | Streaming uses a purpose-built array splitter (`lib/import/json-array-stream.ts`), not `@streamparser/json`. | No dependency, and one conversation is the natural unit to buffer |
 | 14 Nov 2026 | The screening digest includes the export's own `summary` field when present. | Present on 38 of 62 real conversations; a better screening signal than first and last messages alone |
 | 14 Nov 2026 | Real volume is far below the planning figure of 1,000 conversations: 62 conversations, 593 messages on the active threads, about 630,000 characters stored. Section 13's estimates are an upper bound; a first import should need roughly 130 Firestore writes and a few dozen Gemini requests. | Measured on the real export |
+| 14 Nov 2026 | Saving is two passes over the export: a preview that compares content hashes with the saved index, then a write pass after the user confirms. Section 7 described a single pass with a cursor. | The import id is a fingerprint of the whole export, known only after reading it; and the user sees what will change before anything is written |
+| 14 Nov 2026 | Each write batch commits conversations, chunks, index entries and import progress atomically. Resume needs no cursor: the index always equals what is saved, so repeating the import writes only what is missing. | Removes every partial-write state |
+| 14 Nov 2026 | `sourceIndex` uses 8 fixed shards per source, capped at 2,000 entries each (16,000 conversations). | Fixed ids mean the whole index loads in at most 8 reads |
+| 14 Nov 2026 | Conversations absent from a newer export are reported in the preview but not flagged in Firestore. | Avoids writes that carry no decision; nothing is ever deleted without an explicit request |
+| 14 Nov 2026 | "Delete import" removes the conversations whose latest version came from that import. | Imports overlap, so a conversation belongs to the import that last wrote it |
 | 14 Nov 2026 | Firestore writes require a verified email, and the profile document is created on first entry to the app after verification. | Keeps unverified accounts from writing anything |
 
 ## Summary and decisions needed

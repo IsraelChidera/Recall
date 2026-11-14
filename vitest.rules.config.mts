@@ -1,13 +1,15 @@
+import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
-// Firestore rules tests. Run through `npm run test:rules`, which starts the
-// Firestore emulator first.
+// Tests that need the Firestore emulator: security rules and the import
+// writer. Run through `npm run test:rules`, which starts the emulator first.
 export default defineConfig({
+  plugins: [tsconfigPaths()],
   test: {
     environment: "node",
     include: ["tests/rules/**/*.test.ts"],
     fileParallelism: false,
-    testTimeout: 20_000,
-    hookTimeout: 30_000,
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
   },
 });

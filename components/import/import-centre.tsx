@@ -3,16 +3,32 @@
 import { CircleAlert, CircleCheck, CircleMinus, FileArchive, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 
+import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { summarise, type ConversationSummary } from "@/lib/domain/conversation";
+import { getFirebaseServices } from "@/lib/firebase/client";
+import {
+  FirestoreImportWriter,
+  ImportCapacityError,
+  loadSourceIndex,
+  type WriteProgress,
+} from "@/lib/import/firestore-writer";
 import type { ImportProgress, ImportResult } from "@/lib/import/parse-export";
+import { planImport, type ImportPlan, type SourceIndex } from "@/lib/import/plan";
 import { ImportCancelledError, runImport, type ImportRun } from "@/lib/import/run-import";
 import { cn } from "@/lib/utils";
+
+import { ImportHistory } from "./import-history";
+
+/** What is already saved, and what this export would add. Null when it could not be loaded. */
+type Saved = { index: SourceIndex; plan: ImportPlan } | null;
 
 type Phase =
   | { name: "idle" }
   | { name: "parsing"; progress: ImportProgress | null }
-  | { name: "done"; result: ImportResult; summaries: ConversationSummary[] }
+  | { name: "done"; result: ImportResult; summaries: ConversationSummary[]; saved: Saved }
+  | { name: "saving"; progress: WriteProgress }
+  | { name: "saved"; written: number; plan: ImportPlan }
   | { name: "failed"; message: string };
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
@@ -40,41 +56,114 @@ const FILE_STATUS = {
 } as const;
 
 export function ImportCentre() {
+  const auth = useAuth();
+  const uid = auth.status === "signedIn" ? auth.user.uid : null;
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
   const [dragging, setDragging] = useState(false);
+  const [historyKey, setHistoryKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const runRef = useRef<ImportRun | null>(null);
+  const filesRef = useRef<File[]>([]);
 
   useEffect(() => () => runRef.current?.cancel(), []);
 
-  const start = useCallback((files: File[]) => {
-    if (files.length === 0) return;
-    const summaries: ConversationSummary[] = [];
-    setPhase({ name: "parsing", progress: null });
+  // Pass 1: read the export and compare it with what is already saved.
+  const start = useCallback(
+    (files: File[]) => {
+      if (files.length === 0 || !uid) return;
+      filesRef.current = files;
+      const summaries: ConversationSummary[] = [];
+      setPhase({ name: "parsing", progress: null });
 
-    const run = runImport(files, {
-      // Milestone 5 replaces this with the Firestore batch writer. Until then
-      // only the text-free summaries are kept, so memory stays small.
-      onBatch: (conversations) => {
-        for (const conversation of conversations) summaries.push(summarise(conversation));
-      },
-      onProgress: (progress) => setPhase({ name: "parsing", progress }),
-    });
-    runRef.current = run;
+      const run = runImport(files, {
+        // Only text-free summaries are kept, so memory stays small.
+        onBatch: (conversations) => {
+          for (const conversation of conversations) summaries.push(summarise(conversation));
+        },
+        onProgress: (progress) => setPhase({ name: "parsing", progress }),
+      });
+      runRef.current = run;
 
-    run.result.then(
-      (result) => setPhase({ name: "done", result, summaries }),
-      (error: unknown) => {
-        if (error instanceof ImportCancelledError) setPhase({ name: "idle" });
-        else {
-          setPhase({
-            name: "failed",
-            message: error instanceof Error ? error.message : "The import failed.",
-          });
-        }
-      },
-    );
-  }, []);
+      run.result
+        .then(async (result) => {
+          let saved: Saved = null;
+          if (result.sourceId) {
+            try {
+              const index = await loadSourceIndex(getFirebaseServices().db, uid, result.sourceId);
+              saved = { index, plan: planImport(summaries, index) };
+            } catch {
+              // The preview still shows; saving is offered once the workspace is reachable.
+            }
+          }
+          setPhase({ name: "done", result, summaries, saved });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof ImportCancelledError) setPhase({ name: "idle" });
+          else {
+            setPhase({
+              name: "failed",
+              message: error instanceof Error ? error.message : "The import failed.",
+            });
+          }
+        });
+    },
+    [uid],
+  );
+
+  // Pass 2: read the export again and write what is new or changed. Reading
+  // twice keeps memory flat: conversation text is never held between passes.
+  const save = useCallback(
+    async (result: ImportResult, saved: NonNullable<Saved>) => {
+      if (!uid || !result.sourceId || result.adapterVersion === null) return;
+      const toWrite = saved.plan.new + saved.plan.updated;
+      const writer = new FirestoreImportWriter(getFirebaseServices().db, uid, {
+        sourceId: result.sourceId,
+        adapterVersion: result.adapterVersion,
+        importId: result.fingerprint,
+        fileNames: result.files.filter((file) => file.status === "parsed").map((file) => file.name),
+        plan: saved.plan,
+        issues: result.issues,
+        index: saved.index,
+      });
+      setPhase({ name: "saving", progress: { written: 0, toWrite } });
+
+      let begun = false;
+      try {
+        await writer.begin();
+        begun = true;
+        const run = runImport(filesRef.current, {
+          onBatch: async (conversations) => {
+            setPhase({ name: "saving", progress: await writer.writeBatch(conversations) });
+          },
+        });
+        runRef.current = run;
+        await run.result;
+        await writer.finish();
+        setPhase({ name: "saved", written: writer.progress.written, plan: saved.plan });
+      } catch (error) {
+        if (begun) await writer.markPaused().catch(() => {});
+        const written = writer.progress.written;
+        const kept =
+          written > 0
+            ? ` ${numberFormat.format(written)} conversations were saved and are safe.`
+            : "";
+        setPhase(
+          error instanceof ImportCancelledError
+            ? { name: "idle" }
+            : {
+                name: "failed",
+                message:
+                  error instanceof ImportCapacityError
+                    ? error.message
+                    : `Saving stopped before it finished.${kept} Upload the same files to continue where it stopped.`,
+              },
+        );
+      } finally {
+        setHistoryKey((key) => key + 1);
+      }
+    },
+    [uid],
+  );
 
   const onDrop = (event: DragEvent<HTMLLabelElement>) => {
     event.preventDefault();
@@ -85,6 +174,7 @@ export function ImportCentre() {
   const reset = () => {
     runRef.current?.cancel();
     runRef.current = null;
+    filesRef.current = [];
     if (inputRef.current) inputRef.current.value = "";
     setPhase({ name: "idle" });
   };
@@ -168,7 +258,74 @@ export function ImportCentre() {
         </section>
       ) : null}
 
-      {phase.name === "done" ? <ImportSummary phase={phase} onReset={reset} /> : null}
+      {phase.name === "done" ? (
+        <ImportSummary
+          phase={phase}
+          onReset={reset}
+          onSave={phase.saved ? () => save(phase.result, phase.saved as NonNullable<Saved>) : null}
+        />
+      ) : null}
+
+      {phase.name === "saving" ? (
+        <section
+          aria-live="polite"
+          aria-busy="true"
+          className="flex flex-col gap-4 rounded-lg border bg-card p-8"
+        >
+          <h2 className="text-base font-semibold">Saving to your workspace</h2>
+          <div
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={phase.progress.toWrite}
+            aria-valuenow={phase.progress.written}
+            className="h-1.5 overflow-hidden rounded-full bg-muted"
+          >
+            <div
+              className="h-full rounded-full bg-foreground/70 transition-[width]"
+              style={{
+                width: `${phase.progress.toWrite === 0 ? 0 : Math.round((phase.progress.written / phase.progress.toWrite) * 100)}%`,
+              }}
+            />
+          </div>
+          <p className="text-sm text-muted-foreground tabular-nums">
+            {numberFormat.format(phase.progress.written)} of{" "}
+            {numberFormat.format(phase.progress.toWrite)} conversations saved. Keep this tab open.
+          </p>
+          <div>
+            <Button variant="outline" size="sm" onClick={() => runRef.current?.cancel()}>
+              Stop
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {phase.name === "saved" ? (
+        <section className="flex flex-col items-start gap-3 rounded-lg border bg-card p-8">
+          <CircleCheck className="size-5" aria-hidden="true" />
+          <h2 className="text-base font-semibold">
+            Saved {numberFormat.format(phase.written)} conversations
+          </h2>
+          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+            {numberFormat.format(phase.plan.new)} new and {numberFormat.format(phase.plan.updated)}{" "}
+            changed.{" "}
+            {phase.plan.unchanged > 0
+              ? `${numberFormat.format(phase.plan.unchanged)} were already up to date and were left alone. `
+              : ""}
+            They are stored in your private workspace. Finding the unfinished work in them arrives in
+            a later milestone.
+          </p>
+          <Button variant="outline" onClick={reset}>
+            Import more
+          </Button>
+        </section>
+      ) : null}
+
+      {uid && (phase.name === "idle" || phase.name === "saved" || phase.name === "failed") ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-sm font-semibold">Saved imports</h2>
+          <ImportHistory uid={uid} refreshKey={historyKey} />
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -176,11 +333,14 @@ export function ImportCentre() {
 function ImportSummary({
   phase,
   onReset,
+  onSave,
 }: {
   phase: Extract<Phase, { name: "done" }>;
   onReset: () => void;
+  onSave: (() => void) | null;
 }) {
-  const { result, summaries } = phase;
+  const { result, summaries, saved } = phase;
+  const toWrite = saved ? saved.plan.new + saved.plan.updated : 0;
   const { stats } = result;
   const found = stats.conversations > 0;
   const recent = [...summaries]
@@ -196,10 +356,30 @@ function ImportSummary({
             : "No conversations found"}
         </h2>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          {found
-            ? "This is a preview. Nothing has been uploaded or saved yet. Saving to your workspace arrives in the next milestone."
-            : "None of these files contained a conversations archive. Upload the file named conversations-000.zip from your export."}
+          {!found
+            ? "None of these files contained a conversations archive. Upload the file named conversations-000.zip from your export."
+            : !saved
+              ? "This is a preview. Recall could not reach your workspace to compare it with what is saved, so nothing can be saved right now. Check your connection and try again."
+              : toWrite === 0
+                ? "Nothing new in this export. Every conversation in it is already saved and up to date."
+                : `${numberFormat.format(saved.plan.new)} new and ${numberFormat.format(saved.plan.updated)} changed since your last import. ${numberFormat.format(saved.plan.unchanged)} already saved. Nothing is saved until you choose to.`}
         </p>
+        {found && saved && saved.plan.notInThisExport > 0 ? (
+          <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+            {numberFormat.format(saved.plan.notInThisExport)} conversations saved earlier are not in
+            this export. They are kept.
+          </p>
+        ) : null}
+        {found && onSave && toWrite > 0 ? (
+          <div className="flex flex-wrap gap-3 pt-2">
+            <Button size="lg" onClick={onSave}>
+              Save {numberFormat.format(toWrite)} conversations
+            </Button>
+            <Button size="lg" variant="outline" onClick={onReset}>
+              Cancel
+            </Button>
+          </div>
+        ) : null}
       </section>
 
       {found ? (
@@ -288,7 +468,9 @@ function ImportSummary({
       {result.issueCount > 0 ? (
         <section className="flex flex-col gap-3">
           <h3 className="text-sm font-semibold">
-            {numberFormat.format(result.issueCount)} conversations could not be read
+            {result.issueCount === 1
+              ? "1 conversation could not be read"
+              : `${numberFormat.format(result.issueCount)} conversations could not be read`}
           </h3>
           <ul className="divide-y rounded-lg border bg-card text-sm">
             {result.issues.map((issue, index) => (
