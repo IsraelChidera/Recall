@@ -205,8 +205,12 @@ it("saves only what is new or changed from a newer export", async () => {
 });
 
 it("asks for consent before any AI request is made", async () => {
+  const t0 = Date.now();
+  const lap = (label: string) => console.log(`[timing] ${label}: ${Date.now() - t0}ms`);
   await page.goto(`${BASE}/dashboard`);
+  lap("goto");
   await waitForText("Before Recall reads your conversations with AI", 20_000);
+  lap("consent shown");
   const disabled = await page.evaluate(
     () => [...document.querySelectorAll("button")].find((b) => b.textContent === "Allow AI analysis")?.disabled,
   );
@@ -214,9 +218,12 @@ it("asks for consent before any AI request is made", async () => {
   expect(await storedCount("usage")).toBe(0);
   expect(await storedCount("jobs")).toBe(0);
 
+  lap("counts read");
   await page.click("input[type=checkbox]");
   await clickButton("Allow AI analysis");
+  lap("clicked allow");
   await waitForText("62 conversations are waiting to be analysed");
+  lap("waiting shown");
 });
 
 it("lets the user leave a conversation out", async () => {
