@@ -3,6 +3,7 @@ import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
 import {
   connectFirestoreEmulator,
   getFirestore,
+  initializeFirestore,
   type Firestore,
 } from "firebase/firestore";
 
@@ -29,16 +30,18 @@ export function getFirebaseApp(): FirebaseApp {
 export function getFirebaseServices(): { auth: Auth; db: Firestore } {
   const app = getFirebaseApp();
   const auth = getAuth(app);
-  const db = getFirestore(app);
+  const useEmulators = getClientEnv().NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true";
 
-  if (
-    !emulatorsConnected &&
-    getClientEnv().NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true"
-  ) {
+  if (useEmulators && !emulatorsConnected) {
+    // The emulator speaks HTTP/1.1, where the SDK's streaming transport can
+    // stall for tens of seconds behind the browser's per-host connection
+    // limit. Long polling avoids that. Production keeps the SDK defaults.
+    const db = initializeFirestore(app, { experimentalForceLongPolling: true });
     connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
     connectFirestoreEmulator(db, "127.0.0.1", 8080);
     emulatorsConnected = true;
+    return { auth, db };
   }
 
-  return { auth, db };
+  return { auth, db: getFirestore(app) };
 }
