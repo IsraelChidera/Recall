@@ -2,6 +2,38 @@
 
 Decisions and verified results per milestone. Newest milestone first.
 
+## Milestone 6: AI intelligence (15 November 2026)
+
+**Objective.** Discover unfinished work in the saved conversations with an AI model, store only what can be verified against the source text, and stay inside the free quota.
+
+**How it works**
+
+- **Provider interface** (`lib/ai/provider.ts`). `GeminiProvider` is the real implementation; `FakeProvider` is a deterministic stand-in that reads the same prompts and answers by pattern rules, so tests exercise the whole pipeline. The fake is refused on a deployed site.
+- **Jobs** (`lib/server/analysis/job.ts`). `POST /api/jobs` starts or resumes a job; `POST /api/jobs/{id}/advance` does a bounded slice of work under a short lease. The browser tab calls it in a loop and waits as long as the response says. Closing the tab stops the loop; the job continues from its saved state next time.
+- **Stages.** Prefilter (no AI) drops excluded and trivial conversations. Screening sends digests in batches. Extraction reads each shortlisted conversation as a numbered, redacted transcript, in overlapping windows when long. Reconciliation merges near-duplicate tasks. Persistence writes tasks and projects with the Admin SDK.
+- **Nothing from the model is trusted.** Messages are numbered for the model, which never sees an identifier. Every quote must be found in the message it cites. Deadlines and completions that cannot be verified are dropped while the task itself is kept. Malformed items are discarded individually.
+- **User decisions outrank the model.** A dismissed task stays dismissed. A task you approved is never silently completed; a verified completion is recorded as a suggestion.
+- **Consent and privacy.** Nothing is sent until the consent statement is accepted (`AI_CONSENT_VERSION`). Excluded conversations are never sent. Emails, phone numbers, long numbers and credential-shaped strings are redacted first.
+- **Quota.** `users/{uid}/usage/{day}` counts requests per Pacific-time day, server-written only. Jobs pause at `AI_DAILY_REQUEST_CAP` and resume later. Per-minute pacing is returned to the client as a wait.
+
+**Configuration.** Model names and limits are environment variables with conservative defaults (see `.env.example`). They must be set from the limits AI Studio shows for the project.
+
+**Verified**
+
+- Unit tests: redaction, transcripts and windows, quote verification, discovery rules, configuration, and the Gemini provider against a stand-in SDK client (schema passing, model choice, error classification).
+- Emulator tests (`tests/rules/analysis-pipeline.test.ts`, 17 tests) through the real job code with the Admin SDK: guards, a full run, privacy, an untrustworthy model, quota and resuming, single-caller leasing, re-analysis after a newer export, and deletion.
+- Browser tests: consent gate, leaving a conversation out, a full analysis showing findings with their quotes, and deletion of discoveries.
+
+**Not verified**
+
+- **No request has been made to the real Gemini API.** The model names `gemini-3.5-flash-lite` and `gemini-3.8-flash` come from third-party reports and are unconfirmed for this project. Whether the model honours the JSON schema at this prompt size, and how good its extraction is, is unknown until a live run.
+- Extraction quality. The fake provider proves the plumbing and the safeguards, not the usefulness of real findings.
+- The analysis panel has been driven by the browser tests but not inspected by eye.
+
+**Open issue: stalled requests on the emulator**
+
+In the browser tests, one streamed Firestore request per session is held by the emulator for 45 to 60 seconds before it answers. Request tracing showed the long-poll channel requests pending at the emulator with only three connections open, so it is not the browser's connection limit. Switching transport, shortening long-poll cycles and loading the overview sequentially moved the stall but did not remove it. The tests pass because their waits allow for it. I believe it is specific to the emulator, but I have not proven that. Watch for a long pause on the dashboard when running against the real project.
+
 ## Milestone 5: Data persistence (14 November 2026)
 
 **Objective.** Save imported conversations to Firestore from the browser, idempotently and resumably, and let the user see and delete what is saved.

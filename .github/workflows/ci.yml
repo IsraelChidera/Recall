@@ -69,6 +69,9 @@ jobs:
           NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true
           FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
           FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+          ALLOWED_EMAILS=e2e@example.com
+          AI_PROVIDER=fake
+          AI_REQUESTS_PER_MINUTE=600
           ENV
       - run: npm run build
       - run: npm run test:e2e

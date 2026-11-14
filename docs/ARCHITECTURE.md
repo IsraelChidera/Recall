@@ -30,6 +30,10 @@ The proposal's schema changes (embedded evidence, no reminders collection, five 
 | 14 Nov 2026 | `sourceIndex` uses 8 fixed shards per source, capped at 2,000 entries each (16,000 conversations). | Fixed ids mean the whole index loads in at most 8 reads |
 | 14 Nov 2026 | Conversations absent from a newer export are reported in the preview but not flagged in Firestore. | Avoids writes that carry no decision; nothing is ever deleted without an explicit request |
 | 14 Nov 2026 | "Delete import" removes the conversations whose latest version came from that import. | Imports overlap, so a conversation belongs to the import that last wrote it |
+| 15 Nov 2026 | Task identity is the normalised title, not the title plus conversation. The same work mentioned in several conversations lands on one task with evidence from each. A model pass then merges near-duplicates. | Removes most duplicates by construction, before any AI reconciliation |
+| 15 Nov 2026 | Confidence is computed by the server from the commitment class and checkable facts. The model is not asked how sure it is. | Models are poor judges of their own certainty |
+| 15 Nov 2026 | The analysis queue query uses `needsAnalysis` and `excluded` only; after screening, a server-owned `analysis.state` carries each conversation through extraction. | One client-writable flag in, server-owned state after that |
+| 15 Nov 2026 | Deleting imported conversations also deletes the discoveries that quote them. | A task whose only evidence is gone would be unverifiable |
 | 14 Nov 2026 | Firestore writes require a verified email, and the profile document is created on first entry to the app after verification. | Keeps unverified accounts from writing anything |
 
 ## Summary and decisions needed

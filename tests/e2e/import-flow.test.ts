@@ -18,7 +18,7 @@ const BASE = `http://localhost:${PORT}`;
 const PROJECT = "demo-recall";
 const AUTH = "http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1";
 const FIRESTORE = `http://127.0.0.1:8080/v1/projects/${PROJECT}/databases/(default)/documents`;
-const EMAIL = `e2e-${Date.now()}@example.com`;
+const EMAIL = "e2e@example.com";
 const PASSWORD = "correct-horse-battery";
 const CHROME = [process.env.CHROME_PATH, "/usr/bin/google-chrome", "/usr/bin/chromium-browser"].find(
   (path): path is string => Boolean(path && existsSync(path)),
@@ -49,8 +49,15 @@ async function storedCount(path: string): Promise<number> {
   return body.documents?.length ?? 0;
 }
 
-const waitForText = (text: string, timeout = 60_000) =>
-  page.waitForFunction((needle) => document.body.innerText.includes(needle), { timeout }, text);
+/** Waits for text to appear; on timeout, reports what the page showed instead. */
+async function waitForText(text: string, timeout = 120_000) {
+  try {
+    await page.waitForFunction((needle) => document.body.innerText.includes(needle), { timeout }, text);
+  } catch {
+    const shown = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(0, 600));
+    throw new Error(`Timed out waiting for "${text}". The page showed: ${shown}`);
+  }
+}
 
 async function clickButton(label: string) {
   const handle = await page.waitForFunction(
@@ -58,7 +65,7 @@ async function clickButton(label: string) {
       [...document.querySelectorAll("button")].find(
         (button) => button.textContent?.trim() === needle && !button.disabled,
       ),
-    { timeout: 30_000 },
+    { timeout: 120_000 },
     label,
   );
   await (handle.asElement() as ElementHandle<Element>).click();
@@ -96,7 +103,13 @@ beforeAll(async () => {
     { Authorization: "Bearer owner" },
   );
 
-  server = spawn("npx", ["next", "start", "-p", String(PORT)], { stdio: "ignore", detached: true });
+  // The test runner sets NODE_ENV=test, under which Next.js ignores .env.local.
+  // The app under test must run as it does in production.
+  server = spawn("npx", ["next", "start", "-p", String(PORT)], {
+    stdio: "ignore",
+    detached: true,
+    env: { ...process.env, NODE_ENV: "production" },
+  });
   for (let attempt = 0; ; attempt++) {
     try {
       if ((await fetch(BASE)).ok) break;
@@ -114,6 +127,10 @@ beforeAll(async () => {
   });
   page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 1000 });
+  // The Firestore emulator sometimes holds a streamed request for close to a
+  // minute before answering. Waits are sized so that slows a run down
+  // without failing it.
+  page.setDefaultTimeout(120_000);
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
@@ -140,7 +157,7 @@ afterAll(async () => {
 });
 
 it("creates the profile document on first entry", async () => {
-  await waitForText("Server session confirmed");
+  await waitForText("Nothing imported yet");
   await expect
     .poll(async () => (await fetch(`${FIRESTORE}/users/${uid}`, { headers: { Authorization: "Bearer owner" } })).status, {
       timeout: 15_000,
@@ -191,13 +208,52 @@ it("saves only what is new or changed from a newer export", async () => {
   expect(await storedCount("imports")).toBe(2);
 });
 
-it("deletes everything on request", async () => {
+it("asks for consent before any AI request is made", async () => {
+  await page.goto(`${BASE}/dashboard`);
+  await waitForText("Before Recall reads your conversations with AI");
+  const disabled = await page.evaluate(
+    () => [...document.querySelectorAll("button")].find((b) => b.textContent === "Allow AI analysis")?.disabled,
+  );
+  expect(disabled).toBe(true);
+  expect(await storedCount("usage")).toBe(0);
+  expect(await storedCount("jobs")).toBe(0);
+
+  await page.click("input[type=checkbox]");
+  await clickButton("Allow AI analysis");
+  await waitForText("62 conversations are waiting to be analysed");
+});
+
+it("lets the user leave a conversation out", async () => {
+  await page.click("details > summary");
+  const first = await page.waitForSelector("details input[type=checkbox]");
+  await first!.click();
+  await waitForText("1 left out");
+  await waitForText("61 conversations are waiting to be analysed");
+});
+
+it("analyses the conversations and shows findings with their quotes", async () => {
+  await clickButton("Start analysis");
+  await waitForText("Analysis complete", 150_000);
+  await waitForText("1 discovery to review");
+  await waitForText("I will finish the synthetic migration report by Friday.");
+  // 15 identical commitments merged into one open task; 15 already finished.
+  expect(await storedCount("tasks")).toBe(16);
+  expect(await storedCount("projects")).toBe(1);
+  expect(await storedCount("usage")).toBe(1);
+  expect(await storedCount("jobs")).toBe(1);
+  expect(await page.evaluate(() => document.body.innerText)).toMatch(/\d+ of 450 AI requests used today/);
+});
+
+it("deletes everything on request, including what was discovered", async () => {
+  await page.goto(`${BASE}/import`);
   await clickButton("Delete all imported conversations");
   await clickButton("Delete everything");
   await waitForText("Nothing has been saved yet.");
   expect(await storedCount("conversations")).toBe(0);
   expect(await storedCount("imports")).toBe(0);
   expect(await storedCount("sourceIndex")).toBe(0);
+  expect(await storedCount("tasks")).toBe(0);
+  expect(await storedCount("projects")).toBe(0);
 });
 
 it("logs no errors in the browser console", () => {

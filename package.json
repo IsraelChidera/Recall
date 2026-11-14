@@ -15,6 +15,7 @@
     "test:e2e": "firebase emulators:exec --only auth,firestore --project demo-recall \"vitest run --config vitest.e2e.config.mts\""
   },
   "dependencies": {
+    "@google/genai": "^3.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "firebase": "^13.3.0",
