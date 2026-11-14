@@ -377,6 +377,7 @@ async function deleteConversationsWhere(
     const shardRemovals = new Map<string, string[]>();
     let operations = 0;
     let removed = 0;
+    const removedIds: string[] = [];
     for (const entry of page.docs) {
       const data = entry.data();
       const chunkCount = count(data.chunkCount);
@@ -385,6 +386,7 @@ async function deleteConversationsWhere(
       if (removed > 0 && operations + chunkCount + 1 > MAX_DELETE_OPERATIONS) break;
       operations += chunkCount + 1;
       removed++;
+      removedIds.push(entry.id);
       for (let chunk = 0; chunk < chunkCount; chunk++) {
         batch.delete(doc(entry.ref, "chunks", String(chunk)));
       }
@@ -409,8 +411,52 @@ async function deleteConversationsWhere(
       );
     }
     await batch.commit();
+    await deleteDiscoveriesCiting(db, uid, removedIds);
     deleted += removed;
     onProgress?.(deleted);
+  }
+}
+
+/**
+ * Deletes every discovered task that quotes one of the given conversations,
+ * so no excerpt of deleted text survives in a task. A task merged from several
+ * conversations is deleted too; its other conversations are queued for
+ * analysis again, which rediscovers it from what remains.
+ */
+async function deleteDiscoveriesCiting(db: Firestore, uid: string, conversationIds: string[]): Promise<void> {
+  const gone = new Set(conversationIds);
+  // `array-contains-any` accepts at most 30 values.
+  for (let start = 0; start < conversationIds.length; start += 30) {
+    const ids = conversationIds.slice(start, start + 30);
+    const citing = await getDocs(
+      query(collection(db, userPath(uid, "tasks")), where("sourceConversationIds", "array-contains-any", ids)),
+    );
+    if (citing.empty) continue;
+    const batch = writeBatch(db);
+    const requeue = new Set<string>();
+    for (const task of citing.docs) {
+      batch.delete(task.ref);
+      for (const id of (task.data().sourceConversationIds ?? []) as string[]) {
+        if (!gone.has(id)) requeue.add(id);
+      }
+    }
+    for (const id of requeue) {
+      batch.update(doc(db, userPath(uid, "conversations", id)), {
+        needsAnalysis: true,
+        updatedAt: serverTimestamp(),
+      });
+    }
+    await batch.commit();
+  }
+}
+
+async function deleteCollection(db: Firestore, uid: string, name: string): Promise<void> {
+  for (;;) {
+    const page = await getDocs(query(collection(db, userPath(uid, name)), limit(200)));
+    if (page.empty) return;
+    const batch = writeBatch(db);
+    for (const entry of page.docs) batch.delete(entry.ref);
+    await batch.commit();
   }
 }
 
@@ -435,7 +481,7 @@ export async function deleteImport(
   return deleted;
 }
 
-/** Removes every conversation of a source, its import history and its index. */
+/** Removes every conversation of a source, what was discovered in them, its import history and its index. */
 export async function deleteSourceData(
   db: Firestore,
   uid: string,
@@ -443,6 +489,11 @@ export async function deleteSourceData(
   onProgress?: (deleted: number) => void,
 ): Promise<number> {
   const deleted = await deleteConversationsWhere(db, uid, sourceId, null, onProgress);
+
+  // Claude is the only source today, so everything discovered came from it.
+  // When a second source exists this must delete by source instead.
+  await deleteCollection(db, uid, "tasks");
+  await deleteCollection(db, uid, "projects");
 
   for (;;) {
     const imports = await getDocs(

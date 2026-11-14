@@ -18,7 +18,7 @@ import {
   type StructuredResponse,
 } from "@/lib/ai/provider";
 import type { NormalisedConversation } from "@/lib/domain/conversation";
-import { FirestoreImportWriter, loadSourceIndex } from "@/lib/import/firestore-writer";
+import { deleteImport, deleteSourceData, FirestoreImportWriter, listImports, loadSourceIndex } from "@/lib/import/firestore-writer";
 import { parseExport } from "@/lib/import/parse-export";
 import { planImport } from "@/lib/import/plan";
 import { advanceJob, JobError, startJob } from "@/lib/server/analysis/job";
@@ -535,5 +535,47 @@ describe("re-analysis after a newer export", () => {
     expect((approvedAfter.evidence as { kind: string }[]).some((evidence) => evidence.kind === "completion")).toBe(true);
     // A dismissed task stays dismissed and is not recreated.
     expect(after.find((task) => task.id === dismissed.id)).toMatchObject({ status: "dismissed" });
+  });
+});
+
+describe("deleting imported data", () => {
+  it("removes discoveries that quote a deleted conversation and rediscovers what remains", async () => {
+    await giveConsent();
+    const sentence = "I will publish the synthetic design tokens package.";
+    await importConversations([commitment(1, sentence)]);
+    await importConversations([commitment(1, sentence), commitment(2, sentence)]);
+    await runJob(deps(new FakeProvider()));
+
+    // The same commitment in two conversations: one merged task citing both.
+    const merged = await tasks();
+    expect(merged).toHaveLength(1);
+    expect((merged[0]!.sourceConversationIds as string[]).length).toBe(2);
+
+    // Delete the second import, which holds only the second conversation.
+    const [latest] = await listImports(clientDb, UID);
+    expect(await deleteImport(clientDb, UID, { id: latest!.id }, "claude")).toBe(1);
+    expect(await tasks()).toHaveLength(0);
+
+    // The surviving conversation is queued again and its task comes back,
+    // now citing only what still exists.
+    const view = await runJob(deps(new FakeProvider()));
+    expect(view.status).toBe("completed");
+    const again = await tasks();
+    expect(again).toHaveLength(1);
+    expect(again[0]!.sourceConversationIds).toHaveLength(1);
+    const quotes = (again[0]!.evidence as { conversationId: string }[]).map((evidence) => evidence.conversationId);
+    expect(new Set(quotes).size).toBe(1);
+  });
+
+  it("removes every task and project when all imported data is deleted", async () => {
+    await giveConsent();
+    await importConversations(makeConversations(12));
+    await runJob(deps(new FakeProvider()));
+    expect((await tasks()).length).toBeGreaterThan(0);
+
+    await deleteSourceData(clientDb, UID, "claude");
+    expect(await tasks()).toHaveLength(0);
+    expect((await db.collection(`users/${UID}/projects`).get()).size).toBe(0);
+    expect((await db.collection(`users/${UID}/conversations`).get()).size).toBe(0);
   });
 });
