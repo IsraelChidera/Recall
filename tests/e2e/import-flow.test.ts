@@ -131,6 +131,20 @@ beforeAll(async () => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${String(error)}`));
+  const started = new Map<unknown, number>();
+  const t0 = Date.now();
+  const brief = (url: string) => url.replace(/^https?:\/\/[^/]+/, "").replace(/\?.*$/, (q) => (/TYPE=([a-z]+)/.exec(q)?.[0] ?? "") + (/SID=/.test(q) ? " SID" : "")).slice(0, 110);
+  page.on("request", (request) => started.set(request, Date.now()));
+  const done = (kind: string) => (request: { url(): string; method(): string }) => {
+    const begin = started.get(request);
+    if (begin === undefined) return;
+    const took = Date.now() - begin;
+    if (took > 3000 || kind === "failed") {
+      console.log(`SLOW ${kind} +${((begin - t0) / 1000).toFixed(1)}s took=${took}ms ${request.method()} ${new URL(request.url()).port} ${brief(request.url())}`);
+    }
+  };
+  page.on("requestfinished", done("finished"));
+  page.on("requestfailed", done("failed"));
 
   await page.goto(`${BASE}/login`);
   await page.waitForSelector("#email");
