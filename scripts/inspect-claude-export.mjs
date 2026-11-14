@@ -3,7 +3,9 @@
  * Prints the STRUCTURE of a Claude data export. It never prints message text.
  *
  * Usage:
- *   1. Unzip your Claude export into a folder.
+ *   1. Download every ZIP from the export (conversations-000.zip,
+ *      projects-000.zip, ...) and unzip each into its own subfolder of one
+ *      parent folder.
  *   2. node scripts/inspect-claude-export.mjs /path/to/unzipped-folder
  *   3. Share the output. Review it first: it contains key names, value types,
  *      counts and lengths only.
@@ -19,7 +21,7 @@
  * No dependencies. Runs entirely on your machine. Makes no network requests.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 
 /** Keys whose values describe structure, not content. */
 const STRUCTURAL_KEYS = new Set(["sender", "type", "role", "platform", "file_type", "file_kind"]);
@@ -33,6 +35,7 @@ const MAX_PARSE_BYTES = 450 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 const URL_LIKE = /^https?:\/\//i;
+const IDENTIFIER_LIKE = /^[a-z][a-z0-9_/-]*$/;
 
 function stringFormat(value) {
   if (value.length === 0) return "empty";
@@ -90,7 +93,14 @@ function walk(value, path, key, stats) {
   if (type === "string") {
     track(stat.strLen, value.length);
     bump(stat.formats, stringFormat(value));
-    if (STRUCTURAL_KEYS.has(key) && value.length <= MAX_VALUE_LENGTH && !stat.valuesOverflow) {
+    // Only identifier-like values are printed, so a free-text field that
+    // happens to share a structural key name (an email "sender") stays hidden.
+    if (
+      STRUCTURAL_KEYS.has(key) &&
+      value.length <= MAX_VALUE_LENGTH &&
+      IDENTIFIER_LIKE.test(value) &&
+      !stat.valuesOverflow
+    ) {
       stat.values.add(value);
       if (stat.values.size > MAX_DISTINCT) {
         stat.values.clear();
@@ -130,28 +140,33 @@ function report(file, stats) {
   }
 }
 
+function listFiles(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    return statSync(path).isDirectory() ? listFiles(path) : [path];
+  });
+}
+
 function main() {
   const target = process.argv[2];
   if (!target) {
-    console.error("Usage: node scripts/inspect-claude-export.mjs <unzipped export folder>");
+    console.error("Usage: node scripts/inspect-claude-export.mjs <folder containing the unzipped export>");
     process.exit(1);
   }
 
-  const isDir = statSync(target).isDirectory();
-  const files = isDir
-    ? readdirSync(target).map((name) => join(target, name))
-    : [target];
+  // The export arrives as several ZIPs (conversations-000.zip, projects-000.zip
+  // and so on). Unzip them all under one folder; subfolders are walked.
+  const files = statSync(target).isDirectory() ? listFiles(target) : [target];
 
   console.log("Claude export structure report (no message text)\n");
   console.log("Files:");
   for (const file of files) {
-    const info = statSync(file);
-    const kind = info.isDirectory() ? "dir" : "file";
-    console.log(`  ${basename(file)}  ${kind}  ${(info.size / 1024 / 1024).toFixed(2)} MB`);
+    const size = statSync(file).size;
+    console.log(`  ${relative(target, file) || basename(file)}  ${(size / 1024 / 1024).toFixed(2)} MB`);
   }
 
   for (const file of files.filter((name) => name.toLowerCase().endsWith(".json"))) {
-    const name = basename(file);
+    const name = relative(target, file) || basename(file);
     const size = statSync(file).size;
     console.log(`\n== ${name} ==`);
     if (size > MAX_PARSE_BYTES) {

@@ -13,6 +13,18 @@ import { getServerEnv } from "@/lib/env/server";
  */
 function getAdminApp(): App {
   if (getApps().length > 0) return getApp();
+
+  // Local development against the Emulator Suite needs no credentials. The
+  // Admin SDK routes to the emulators when these variables are set.
+  if (process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST) {
+    if (process.env.NODE_ENV === "production" && process.env.VERCEL) {
+      throw new Error("Emulator variables must not be set on a deployed environment.");
+    }
+    return initializeApp({
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "demo-recall",
+    });
+  }
+
   const env = getServerEnv();
   return initializeApp({
     credential: cert({

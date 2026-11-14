@@ -14,6 +14,19 @@ Approved on 14 November 2026. This is the Milestone 1 proposal as approved; late
 
 The proposal's schema changes (embedded evidence, no reminders collection, five task statuses) were approved with it.
 
+## Amendments since approval
+
+| Date | Change | Reason |
+| --- | --- | --- |
+| 14 Nov 2026 | The Claude export is a manifest plus one ZIP per category (`conversations-000.zip`, `projects-000.zip`, `memories-000.zip`, `design_chats-000.zip`, `frames-000.zip`, `claude_code_cloud-000.zip`, `light_metadata-000.zip`), each possibly split into numbered parts. Section 7 assumed a single archive. The importer will accept one or more `conversations-NNN.zip` files in a single import. | Observed in a real export manifest (version 1.0) |
+| 14 Nov 2026 | Conversations carry a client-written `needsAnalysis` boolean. The server-owned `analysis` map no longer drives the analysis queue query. | Lets the import mark work for analysis without the client writing a server-owned field |
+| 14 Nov 2026 | Parser built against the real export. `conversations.json` is one array; each conversation has `uuid`, `name`, `summary`, `created_at`, `updated_at`, `account`, `chat_messages`. Each message has `uuid`, `sender` (`human` or `assistant`), flat `text`, typed `content` blocks (`text`, `thinking`, `tool_use`, `tool_result`, `document`, `image`, `injected_prompt_block`), `attachments`, `files`, timestamps and `parent_message_uuid`. Conversations do not reference Claude Projects. | Structure report of a real export |
+| 14 Nov 2026 | Messages form a tree. Recall imports the thread ending at the most recent leaf and counts the rest as superseded. Section 7 did not anticipate branches. | 12 of 62 real conversations contain edited or regenerated turns |
+| 14 Nov 2026 | Streaming uses a purpose-built array splitter (`lib/import/json-array-stream.ts`), not `@streamparser/json`. | No dependency, and one conversation is the natural unit to buffer |
+| 14 Nov 2026 | The screening digest includes the export's own `summary` field when present. | Present on 38 of 62 real conversations; a better screening signal than first and last messages alone |
+| 14 Nov 2026 | Real volume is far below the planning figure of 1,000 conversations: 62 conversations, 593 messages on the active threads, about 630,000 characters stored. Section 13's estimates are an upper bound; a first import should need roughly 130 Firestore writes and a few dozen Gemini requests. | Measured on the real export |
+| 14 Nov 2026 | Firestore writes require a verified email, and the profile document is created on first entry to the app after verification. | Keeps unverified accounts from writing anything |
+
 ## Summary and decisions needed
 
 Recall is buildable on the approved zero-cost stack, but three of the prompt's assumptions do not survive contact with the current free tiers. I need your call on five points before Milestone 2 starts. No application code has been written.
