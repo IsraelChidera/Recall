@@ -220,11 +220,15 @@ it("asks for consent before any AI request is made", async () => {
 });
 
 it("lets the user leave a conversation out", async () => {
+  const t0 = Date.now();
   await page.click("details > summary");
   const first = await page.waitForSelector("details input[type=checkbox]");
+  const t1 = Date.now();
   await first!.click();
-  await waitForText("61 conversations are waiting to be analysed");
   await waitForText("1 left out");
+  const t2 = Date.now();
+  await waitForText("61 conversations are waiting to be analysed");
+  console.log(`TIMING list=${t1 - t0}ms toggle-ui=${t2 - t1}ms overview=${Date.now() - t2}ms`);
 });
 
 it("analyses the conversations and shows findings with their quotes", async () => {
