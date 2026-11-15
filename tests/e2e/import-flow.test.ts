@@ -340,6 +340,63 @@ it("shows a project with its outstanding work and conversations", async () => {
   await page.setViewport({ width: 1280, height: 1000 });
 });
 
+it("runs approved work from the Execution Inbox: start, remind, regroup", async () => {
+  await page.goto(`${BASE}/execute`);
+  await waitForText("Send the synthetic migration report");
+  await waitForText("High priority (1)");
+  await clickButton("Start");
+  await waitForText("Started: ");
+  await waitForText("In progress");
+
+  await clickButton("Edit");
+  const remind = (await page.waitForSelector('input[id$="-remind"]')) as ElementHandle<HTMLInputElement>;
+  const tomorrow = new Date(Date.now() + 86_400_000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  // Typed the way a person types into a date field: month, day, year.
+  await remind.type(`${pad(tomorrow.getMonth() + 1)}${pad(tomorrow.getDate())}${tomorrow.getFullYear()}`);
+  await clickButton("Save changes");
+  await waitForText("Reminder ");
+
+  const [stored] = (await storedDocs("tasks")).filter((task) => task.fields?.status?.stringValue === "in_progress");
+  expect(stored?.fields?.title?.stringValue).toBe("Send the synthetic migration report");
+  expect((stored?.fields?.remindOn as { timestampValue?: string } | undefined)?.timestampValue).toBeTruthy();
+
+  await clickButton("Project");
+  await waitForText("Synthetic work (1)");
+  await clickButton("Status");
+  await waitForText("In progress (1)");
+  await shot("execution");
+});
+
+it("shows the commitment under Forgotten Work, with the reason", async () => {
+  await page.goto(`${BASE}/forgotten`);
+  // The synthetic conversations are dated months ago, so the commitment has gone quiet.
+  await waitForText("You said you would do this, and the conversation has been quiet for");
+  await waitForText("It is marked as in progress.");
+  await waitForText("Send the synthetic migration report");
+  await shot("forgotten");
+});
+
+it("summarises the week and the day", async () => {
+  await page.goto(`${BASE}/weekly`);
+  await waitForText("Suggested priorities");
+  // The reminder is set for tomorrow, so it is not yet the reason.
+  await waitForText("High priority, and you have already started.");
+  await waitForText("Projects needing attention");
+  await shot("weekly");
+
+  await page.goto(`${BASE}/dashboard`);
+  await waitForText("Needs your attention");
+  await waitForText("1 commitment has gone quiet");
+  await waitForText("Important commitments");
+  await waitForText("Active projects");
+  await waitForText("Reminders");
+  await shot("dashboard-overview");
+  await page.setViewport({ width: 390, height: 900 });
+  await shot("dashboard-overview-mobile");
+  await page.setViewport({ width: 1280, height: 1000 });
+});
+
 it("deletes everything on request, including what was discovered", async () => {
   await page.goto(`${BASE}/import`);
   await clickButton("Delete all imported conversations");

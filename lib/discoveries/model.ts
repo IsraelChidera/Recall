@@ -22,6 +22,8 @@ export type TaskView = {
   title: string;
   description: string;
   category: string;
+  /** How strongly the user bound themselves: intention, explicit_commitment, ... */
+  commitmentClass: string;
   status: TaskStatus;
   priority: Priority;
   confidence: number;
@@ -34,7 +36,11 @@ export type TaskView = {
   sourceConversationIds: string[];
   originalAt: Date | null;
   discoveredAt: Date | null;
+  /** When the source conversation was last active. */
   lastActivityAt: Date | null;
+  /** When the user last made a decision about this task. */
+  lastReviewedAt: Date | null;
+  remindOn: Date | null;
 };
 
 export type DecisionView = { text: string; quote: string; conversationId: string };
@@ -75,6 +81,7 @@ export function toTaskView(id: string, data: Record<string, unknown>): TaskView 
     title: text(data.title) || "Untitled",
     description: text(data.description),
     category: text(data.category),
+    commitmentClass: text(data.commitmentClass),
     status,
     priority,
     confidence: typeof data.confidence === "number" ? data.confidence : 0,
@@ -95,6 +102,8 @@ export function toTaskView(id: string, data: Record<string, unknown>): TaskView 
     originalAt: toDate(data.originalAt),
     discoveredAt: toDate(data.discoveredAt),
     lastActivityAt: toDate(data.lastActivityAt),
+    lastReviewedAt: toDate(data.lastReviewedAt),
+    remindOn: toDate(data.remindOn),
   };
 }
 
@@ -149,6 +158,8 @@ export type TaskEdit = {
   priority?: Priority;
   projectId?: string | null;
   status?: TaskStatus;
+  /** A date to be reminded on, or null to clear it. */
+  remindOn?: Date | null;
 };
 
 export class InvalidEditError extends Error {
@@ -184,6 +195,12 @@ export function taskPatch(edit: TaskEdit): Record<string, unknown> {
     patch.priorityRank = PRIORITY_RANK[edit.priority];
   }
   if (edit.projectId !== undefined) patch.projectId = edit.projectId;
+  if (edit.remindOn !== undefined) {
+    if (edit.remindOn !== null && Number.isNaN(edit.remindOn.getTime())) {
+      throw new InvalidEditError("That reminder date is not valid.");
+    }
+    patch.remindOn = edit.remindOn;
+  }
   if (edit.status !== undefined) {
     if (!TASK_STATUSES.includes(edit.status)) throw new InvalidEditError("Unknown status.");
     patch.status = edit.status;

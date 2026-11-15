@@ -110,6 +110,7 @@ export function Inbox() {
                     description: edit.description?.trim() ?? entry.description,
                     priority: edit.priority ?? entry.priority,
                     projectId: edit.projectId !== undefined ? edit.projectId : entry.projectId,
+                    remindOn: edit.remindOn !== undefined ? edit.remindOn : entry.remindOn,
                   }
                 : entry,
             ),

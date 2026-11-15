@@ -76,6 +76,30 @@ export async function reviewTask(db: Firestore, uid: string, taskId: string, edi
   await batch.commit();
 }
 
+export type Workspace = { tasks: TaskView[]; projects: ProjectView[] };
+
+const OPEN_LIMIT = 300;
+const COMPLETED_LIMIT = 200;
+
+/**
+ * Everything the dashboard, Execution Inbox, Forgotten Work and the weekly
+ * report need, in three queries: open tasks, completed tasks and projects.
+ * Dismissed tasks are left out. The summaries are then computed in the
+ * browser by lib/discoveries/insights.ts.
+ */
+export async function loadWorkspace(db: Firestore, uid: string): Promise<Workspace> {
+  const tasks = collection(db, userPath(uid, "tasks"));
+  const open = await getDocs(
+    query(tasks, where("status", "in", ["awaiting_review", "approved", "in_progress"]), limit(OPEN_LIMIT)),
+  );
+  const completed = await getDocs(query(tasks, where("status", "==", "completed"), limit(COMPLETED_LIMIT)));
+  const projects = await listProjects(db, uid);
+  return {
+    tasks: [...open.docs, ...completed.docs].map((entry) => toTaskView(entry.id, entry.data())),
+    projects,
+  };
+}
+
 export async function listProjects(db: Firestore, uid: string): Promise<ProjectView[]> {
   const snapshot = await getDocs(
     query(collection(db, userPath(uid, "projects")), orderBy("lastActivityAt", "desc"), limit(100)),
