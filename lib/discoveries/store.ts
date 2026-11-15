@@ -22,7 +22,7 @@ import { toResumeInsights, type ResumeInsights } from "@/lib/resume/insights";
 import {
   activityTypeFor,
   projectPatch,
-  sourceUrlFor,
+  safeSourceUrl,
   taskPatch,
   toProjectView,
   toTaskView,
@@ -139,7 +139,7 @@ export async function loadProject(db: Firestore, uid: string, projectId: string)
       return {
         id,
         title: typeof data.title === "string" && data.title ? data.title : "Untitled conversation",
-        sourceUrl: typeof data.sourceUrl === "string" ? data.sourceUrl : null,
+        sourceUrl: safeSourceUrl(data.sourceUrl, id),
         updated: updated?.toDate ? updated.toDate() : null,
       } satisfies ConversationLink;
     }),
@@ -198,7 +198,7 @@ export async function loadResume(db: Firestore, uid: string, taskId: string): Pr
       conversation = {
         id: conversationId,
         title: typeof stored.title === "string" && stored.title ? stored.title : "Untitled conversation",
-        sourceUrl: (typeof stored.sourceUrl === "string" && stored.sourceUrl) || sourceUrlFor(conversationId),
+        sourceUrl: safeSourceUrl(stored.sourceUrl, conversationId),
       };
       const chunks = await getDocs(
         query(collection(db, userPath(uid, "conversations", conversationId, "chunks")), orderBy("index")),

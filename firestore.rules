@@ -236,7 +236,10 @@ service cloud.firestore {
         && validUser(incoming()) && stampedOnCreate();
       allow update: if isVerifiedOwner(uid)
         && validUser(incoming()) && stampedOnUpdate();
-      // Account deletion runs through an authenticated server route.
+      // The profile holds the AI consent record and is never deleted from the
+      // browser. Recall has no account deletion yet: a user can delete all
+      // imported data and discoveries; removing the account itself is done by
+      // the project owner in the Firebase console.
       allow delete: if false;
 
       match /sources/{sourceId} {

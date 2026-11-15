@@ -721,6 +721,58 @@ describe("resuming a task", () => {
       generateResumeInsights(deps(provider, { dailyRequestCap: used }), UID, taskId),
     ).rejects.toMatchObject({ status: 429, message: expect.stringMatching(/shared AI allowance/) });
     expect(provider.requests).toHaveLength(0);
+    expect(await usedToday()).toBe(used);
+  });
+
+  it("lets only one of several simultaneous requests through, and counts exactly that one", async () => {
+    const taskId = await discovered();
+    const before = await usedToday();
+    const provider = new FakeProvider();
+    const dependencies = deps(provider);
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, () => generateResumeInsights(dependencies, UID, taskId)),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    for (const result of results) {
+      if (result.status === "rejected") expect(result.reason).toMatchObject({ status: 429 });
+    }
+    expect(provider.requests).toHaveLength(1);
+    expect(await usedToday()).toBe(before + 1);
+
+    // After the per-minute interval the next request is allowed.
+    await expect(generateResumeInsights(dependencies, UID, taskId)).rejects.toMatchObject({
+      status: 429,
+      message: expect.stringMatching(/^Wait \d+ seconds/),
+    });
+    dependencies.advance(6_000);
+    await generateResumeInsights(dependencies, UID, taskId);
+    expect(await usedToday()).toBe(before + 2);
+  });
+
+  it("cannot be pushed past a daily limit by simultaneous requests from different users", async () => {
+    const taskId = await discovered();
+    const used = ((await db.doc(`usage/${usageDay(new Date())}`).get()).data()?.aiRequests as number) ?? 0;
+    // Give three more users the same task and consent, with room for two requests in the shared total.
+    const task = (await db.doc(`users/${UID}/tasks/${taskId}`).get()).data()!;
+    const [conversation] = (await db.collection(`users/${UID}/conversations`).get()).docs;
+    const chunks = await conversation!.ref.collection("chunks").get();
+    const others = ["bob", "carol", "dave"];
+    for (const other of others) {
+      await db.doc(`users/${other}`).set({ aiConsentAccepted: true, aiConsentVersion: 1 });
+      await db.doc(`users/${other}/tasks/${taskId}`).set(task);
+      await db.doc(`users/${other}/conversations/${conversation!.id}`).set(conversation!.data());
+      for (const chunk of chunks.docs) {
+        await db.doc(`users/${other}/conversations/${conversation!.id}/chunks/${chunk.id}`).set(chunk.data());
+      }
+    }
+    const provider = new FakeProvider();
+    const dependencies = deps(provider, { dailyRequestCap: used + 2 });
+    const results = await Promise.allSettled(
+      [UID, ...others].map((user) => generateResumeInsights(dependencies, user, taskId)),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(2);
+    expect(provider.requests).toHaveLength(2);
+    expect((await db.doc(`usage/${usageDay(new Date())}`).get()).data()?.aiRequests).toBe(used + 2);
   });
 
   it("reports provider failures without saving anything, and counts an unusable answer", async () => {
@@ -729,13 +781,19 @@ describe("resuming a task", () => {
     await expect(
       generateResumeInsights(deps(new ScriptedProvider(() => new AIUnavailableError("down"))), UID, taskId),
     ).rejects.toMatchObject({ status: 503 });
+    const later = (provider: AIProvider, ms: number) => {
+      const dependencies = deps(provider);
+      dependencies.advance(ms);
+      return dependencies;
+    };
     await expect(
-      generateResumeInsights(deps(new ScriptedProvider(() => new AIRateLimitError(false, 1_000))), UID, taskId),
-    ).rejects.toMatchObject({ status: 429 });
+      generateResumeInsights(later(new ScriptedProvider(() => new AIRateLimitError(false, 1_000)), 7_000), UID, taskId),
+    ).rejects.toMatchObject({ status: 429, message: expect.stringMatching(/busy/) });
+    // Neither request was served, so neither is counted.
     expect(await usedToday()).toBe(before);
 
     await expect(
-      generateResumeInsights(deps(new ScriptedProvider(() => ({ progress: "not a list" }))), UID, taskId),
+      generateResumeInsights(later(new ScriptedProvider(() => ({ progress: "not a list" })), 14_000), UID, taskId),
     ).rejects.toMatchObject({ status: 502 });
     expect(await usedToday()).toBe(before + 1);
     expect((await db.doc(`users/${UID}/tasks/${taskId}`).get()).data()?.resume).toBeUndefined();

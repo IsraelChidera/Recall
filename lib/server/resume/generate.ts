@@ -17,7 +17,7 @@ import {
 import { selectForResume } from "@/lib/resume/select";
 import { assertConsent, JobError } from "@/lib/server/analysis/job";
 import { userPath, type AnalysisDeps } from "@/lib/server/analysis/types";
-import { allowanceToday, recordRequest } from "@/lib/server/analysis/usage";
+import { AllowanceError, reserveRequest, settleRequest } from "@/lib/server/analysis/usage";
 
 export type GeneratedInsights = { points: InsightPoint[]; generatedAt: string };
 
@@ -55,14 +55,6 @@ export async function generateResumeInsights(
     throw new JobError(409, "You have left this conversation out of AI analysis.");
   }
 
-  const allowance = await allowanceToday(deps, uid);
-  if (allowance.globalLeft <= 0) {
-    throw new JobError(429, "Recall's shared AI allowance for today is used up. Try again after the daily reset.");
-  }
-  if (allowance.userLeft <= 0) {
-    throw new JobError(429, "You have used your AI allowance for today. Try again after the daily reset.");
-  }
-
   const chunks = await conversationRef.collection("chunks").orderBy("index").get();
   const stored = chunks.docs.flatMap((chunk) => (chunk.data().messages ?? []) as StoredMessage[]);
   const all = toPromptMessages(stored).filter((message) => message.text.trim().length > 0);
@@ -72,6 +64,20 @@ export async function generateResumeInsights(
   const evidenceId = evidence.find((entry) => entry.kind !== "completion" && typeof entry.messageId === "string")
     ?.messageId as string | undefined;
   const shown = selectForResume(all, evidenceId ?? null);
+
+  // Claimed before the request is made, so parallel calls cannot overrun a limit.
+  try {
+    await reserveRequest(deps, uid);
+  } catch (error) {
+    if (!(error instanceof AllowanceError)) throw error;
+    if (error.reason === "shared") {
+      throw new JobError(429, "Recall's shared AI allowance for today is used up. Try again after the daily reset.");
+    }
+    if (error.reason === "user") {
+      throw new JobError(429, "You have used your AI allowance for today. Try again after the daily reset.");
+    }
+    throw new JobError(429, `Wait ${Math.max(1, Math.ceil(error.waitMs / 1000))} seconds and try again.`);
+  }
 
   let data: ResumeResponse;
   try {
@@ -87,9 +93,13 @@ export async function generateResumeInsights(
       schema: resumeResponseSchema,
       maxOutputTokens: 2_000,
     });
-    await recordRequest(deps, uid, response.usage);
+    await settleRequest(deps, uid, response.usage);
     data = response.data;
   } catch (error) {
+    // Not served by the provider: hand the claim back.
+    if (error instanceof AIRateLimitError || error instanceof AIUnavailableError) {
+      await settleRequest(deps, uid, null);
+    }
     if (error instanceof AIRateLimitError) {
       throw new JobError(
         429,
@@ -102,8 +112,7 @@ export async function generateResumeInsights(
       throw new JobError(503, "The AI provider could not be reached. Your prompt below still works without it.");
     }
     if (error instanceof AIResponseError) {
-      // The request was made and counts against the allowance.
-      await recordRequest(deps, uid, { inputTokens: 0, outputTokens: 0 });
+      // The request was made, so the claim stands.
       throw new JobError(502, "The AI answer could not be used. Your prompt below still works without it.");
     }
     throw error;
