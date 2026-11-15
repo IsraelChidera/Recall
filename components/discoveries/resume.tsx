@@ -99,10 +99,17 @@ export function ResumePage() {
       await navigator.clipboard.writeText(prompt);
       setCopied("yes");
     } catch {
-      // Clipboard access can be refused. Select the text so it can be copied by hand.
+      // Clipboard access can be refused. Select the text and try the older
+      // copy command; if that fails too, the text stays selected to copy by hand.
       promptRef.current?.focus();
       promptRef.current?.select();
-      setCopied("manual");
+      let done = false;
+      try {
+        done = document.execCommand("copy");
+      } catch {
+        done = false;
+      }
+      setCopied(done ? "yes" : "manual");
     }
   }
 
