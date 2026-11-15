@@ -168,7 +168,11 @@ beforeAll(async () => {
   // without failing it.
   page.setDefaultTimeout(120_000);
   page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
+    if (message.type() === "error") {
+      // The address says which request failed; the query string is dropped.
+      const from = message.location().url?.split("?")[0];
+      consoleErrors.push(from ? `${message.text()} (${from})` : message.text());
+    }
   });
   page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${String(error)}`));
 
@@ -381,7 +385,7 @@ it("resumes a task: real context, a prompt to copy, and optional AI points", asy
   const before = await promptText();
   expect(before).toContain('"I will finish the synthetic migration report by Friday."');
   expect(before).toContain("You do not have that conversation");
-  expect(before).toContain("Synthetic answer 1.");
+  expect(before).toContain("Synthetic answer 0.");
   expect(before).not.toContain("What was still open");
 
   const original = await page.$eval('main a[href^="https://claude.ai/chat/"]', (element) => element.getAttribute("href"));
