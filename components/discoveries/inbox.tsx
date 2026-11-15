@@ -161,7 +161,8 @@ export function Inbox() {
         ))}
       </div>
 
-      <div aria-live="polite" className="min-h-0">
+      {/* The live region stays mounted so screen readers announce changes; it takes no space when empty. */}
+      <div aria-live="polite" className={notice ? undefined : "sr-only"}>
         {notice ? (
           <p className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted px-4 py-2.5 text-sm">
             <span className="min-w-0 truncate">{notice.text}</span>

@@ -1,10 +1,11 @@
 "use client";
 
 import { CircleAlert, CircleCheck, CircleMinus, FileArchive, Upload } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 
 import { useAuth } from "@/components/auth/auth-provider";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { summarise, type ConversationSummary } from "@/lib/domain/conversation";
 import { getFirebaseServices } from "@/lib/firebase/client";
 import {
@@ -311,12 +312,17 @@ export function ImportCentre() {
             {phase.plan.unchanged > 0
               ? `${numberFormat.format(phase.plan.unchanged)} were already up to date and were left alone. `
               : ""}
-            They are stored in your private workspace. Finding the unfinished work in them arrives in
-            a later milestone.
+            They are stored in your private workspace. Next, let Recall look through them for
+            unfinished work.
           </p>
-          <Button variant="outline" onClick={reset}>
-            Import more
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard" className={buttonVariants()}>
+              Go to analysis
+            </Link>
+            <Button variant="outline" onClick={reset}>
+              Import more
+            </Button>
+          </div>
         </section>
       ) : null}
 
