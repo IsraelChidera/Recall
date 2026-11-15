@@ -380,7 +380,8 @@ it("shows the commitment under Forgotten Work, with the reason", async () => {
 it("summarises the week and the day", async () => {
   await page.goto(`${BASE}/weekly`);
   await waitForText("Suggested priorities");
-  await waitForText("You asked to be reminded about this.");
+  // The reminder is set for tomorrow, so it is not yet the reason.
+  await waitForText("High priority, and you have already started.");
   await waitForText("Projects needing attention");
   await shot("weekly");
 
