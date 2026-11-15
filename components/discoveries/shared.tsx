@@ -34,6 +34,17 @@ export function Notice({ text }: { text: string | null }) {
   );
 }
 
+/** Shown when more tasks exist than a screen loads, so its figures are not mistaken for totals. */
+export function TruncatedNote({ show }: { show: boolean }) {
+  if (!show) return null;
+  return (
+    <p className="rounded-md border bg-muted px-4 py-2.5 text-sm">
+      You have more tasks than this page loads at once, so the figures here are a minimum. Completing or
+      dismissing tasks brings the rest into view.
+    </p>
+  );
+}
+
 export function Section({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
     <section className="flex flex-col gap-3">

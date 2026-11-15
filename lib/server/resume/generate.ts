@@ -141,7 +141,14 @@ export async function generateResumeInsights(
 
   const generatedAt = deps.now();
   await taskRef.update({
-    resume: { points, generatedAt, conversationId },
+    // The hash ties the points to the conversation as it was read. If a newer
+    // export changes the conversation, the saved points are no longer shown.
+    resume: {
+      points,
+      generatedAt,
+      conversationId,
+      contentHash: typeof conversation.contentHash === "string" ? conversation.contentHash : "",
+    },
     updatedAt: FieldValue.serverTimestamp(),
   });
   return { points, generatedAt: generatedAt.toISOString() };

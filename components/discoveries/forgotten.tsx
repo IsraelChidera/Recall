@@ -2,7 +2,7 @@
 
 import { FORGOTTEN, rankForgotten } from "@/lib/discoveries/insights";
 
-import { EmptyState, LoadError, LoadingBlock, Notice } from "./shared";
+import { EmptyState, LoadError, LoadingBlock, Notice, TruncatedNote } from "./shared";
 import { TaskCard } from "./task-card";
 import { useWorkspace } from "./use-workspace";
 
@@ -18,6 +18,7 @@ export function ForgottenWork() {
   return (
     <div className="flex flex-col gap-6">
       <Notice text={notice} />
+      <TruncatedNote show={state.workspace.truncated} />
       {items.length === 0 ? (
         <EmptyState>
           <p>

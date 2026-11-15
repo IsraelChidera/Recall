@@ -687,6 +687,13 @@ describe("resuming a task", () => {
     const resume = (await loadResume(clientDb, UID, taskId))!;
     expect(resume.insights?.points).toHaveLength(2);
     expect(buildResumePrompt(resume.context, resume.insights)).toContain("## What was still open");
+
+    // If a newer export changes the conversation, the saved points stop being shown.
+    const [conversation] = (await db.collection(`users/${UID}/conversations`).get()).docs;
+    const hash = conversation!.data().contentHash as string;
+    await conversation!.ref.update({ contentHash: "changed" });
+    expect((await loadResume(clientDb, UID, taskId))!.insights).toBeNull();
+    await conversation!.ref.update({ contentHash: hash });
     // The user can still review the task: the saved points do not block their edits.
     const { reviewTask } = await import("@/lib/discoveries/store");
     await reviewTask(clientDb, UID, taskId, { status: "approved" });

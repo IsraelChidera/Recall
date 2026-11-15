@@ -81,7 +81,12 @@ export async function reviewTask(db: Firestore, uid: string, taskId: string, edi
   await batch.commit();
 }
 
-export type Workspace = { tasks: TaskView[]; projects: ProjectView[] };
+export type Workspace = {
+  tasks: TaskView[];
+  projects: ProjectView[];
+  /** True when there are more tasks than were loaded, so counts are a lower bound. */
+  truncated: boolean;
+};
 
 const OPEN_LIMIT = 300;
 const COMPLETED_LIMIT = 200;
@@ -102,6 +107,7 @@ export async function loadWorkspace(db: Firestore, uid: string): Promise<Workspa
   return {
     tasks: [...open.docs, ...completed.docs].map((entry) => toTaskView(entry.id, entry.data())),
     projects,
+    truncated: open.size >= OPEN_LIMIT || completed.size >= COMPLETED_LIMIT,
   };
 }
 
@@ -191,10 +197,12 @@ export async function loadResume(db: Firestore, uid: string, taskId: string): Pr
     "";
   let conversation: ResumeConversation | null = null;
   let messages: StoredMessage[] = [];
+  let contentHash = "";
   if (conversationId) {
     const entry = await getDoc(doc(db, userPath(uid, "conversations", conversationId)));
     const stored = entry.data();
     if (stored) {
+      contentHash = typeof stored.contentHash === "string" ? stored.contentHash : "";
       conversation = {
         id: conversationId,
         title: typeof stored.title === "string" && stored.title ? stored.title : "Untitled conversation",
@@ -214,9 +222,11 @@ export async function loadResume(db: Firestore, uid: string, taskId: string): Pr
     if (stored) decisions = toProjectView(project.id, stored).decisions;
   }
 
-  // Saved points describe one conversation. If the task now points elsewhere, they no longer apply.
+  // Saved points describe one conversation as it was when they were made. If
+  // the task now points elsewhere, or the conversation has changed, they no longer apply.
   const saved = toResumeInsights(data.resume);
-  const savedFor = (data.resume as { conversationId?: unknown } | undefined)?.conversationId;
+  const record = data.resume as { conversationId?: unknown; contentHash?: unknown } | undefined;
+  const savedFor = record?.conversationId === conversationId && record?.contentHash === contentHash ? conversationId : null;
   return {
     task,
     context: buildResumeContext({ task, conversation, messages, decisions }),

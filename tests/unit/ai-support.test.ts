@@ -234,3 +234,19 @@ describe("AI configuration", () => {
     expect(usageDay(new Date("2026-11-15T09:00:00Z"))).toBe("2026-11-15");
   });
 });
+
+describe("toPromptMessages with malformed stored data", () => {
+  it("treats anything that is not text as empty instead of failing", async () => {
+    const { toPromptMessages } = await import("@/lib/ai/transcript");
+    const odd = [
+      { id: "a", sender: "human", createdAt: "2026-02-02T00:00:00.000Z", text: "Fine.", truncated: false },
+      { id: 7, sender: "robot", createdAt: 12, text: { nested: true } },
+      null,
+    ] as unknown as Parameters<typeof toPromptMessages>[0];
+    expect(toPromptMessages(odd)).toEqual([
+      { ordinal: 1, id: "a", sender: "human", createdAt: "2026-02-02T00:00:00.000Z", text: "Fine." },
+      { ordinal: 2, id: "", sender: "human", createdAt: null, text: "" },
+      { ordinal: 3, id: "", sender: "human", createdAt: null, text: "" },
+    ]);
+  });
+});

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { summariseDashboard } from "@/lib/discoveries/insights";
 import type { TaskView } from "@/lib/discoveries/model";
 
-import { LoadError, LoadingBlock, Section } from "./shared";
+import { LoadError, LoadingBlock, Section, TruncatedNote } from "./shared";
 import { useWorkspace } from "./use-workspace";
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
@@ -53,6 +53,7 @@ export function DashboardSummary() {
 
   return (
     <div className="flex flex-col gap-8">
+      <TruncatedNote show={state.workspace.truncated} />
       <dl className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-3">
         {[
           ["Done this week", summary.week.completed],
