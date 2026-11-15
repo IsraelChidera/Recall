@@ -2,6 +2,39 @@
 
 Decisions and verified results per milestone. Newest milestone first.
 
+## Milestone 8: Execution dashboard (15 November 2026)
+
+**Objective.** Turn approved discoveries into something the user works from: a daily overview, an Execution Inbox, Forgotten Work and a weekly report.
+
+**What was built**
+
+- `lib/discoveries/insights.ts`: pure functions for ISO weeks, forgotten-work scoring, priority suggestions, the dashboard summary, the weekly report and grouping. No Firebase, no clock of its own (the caller passes `now`), so every rule is unit tested.
+- `loadWorkspace` in `lib/discoveries/store.ts`: three queries (open tasks, completed tasks, projects) feed all four screens. Dismissed tasks are never loaded.
+- `/execute` (group by priority, project or status; Start, Pause, Mark as done), `/forgotten`, `/weekly` (this week and last week) and the overview at the top of `/dashboard`.
+- Reminders: a "Remind me on" date on the task edit form, stored in the existing `remindOn` field. It only surfaces on the dashboard and in the suggested priorities. Recall sends no email or notification.
+
+**Decisions**
+
+- **The weekly report makes no AI request.** The architecture planned one Gemini request per report, cached in `reports`. The report is now computed from task data each time it is opened. It costs nothing, cannot invent anything and is available offline from quota. The `reports` collection stays unused. Recorded as an amendment.
+- **Forgotten is not the same as old.** A task qualifies only if it is open, its conversation has been quiet for 21 days or more, and its score reaches 0.3. Score = commitment strength x staleness (saturating at 180 days) x confidence, with approved work weighted above unreviewed work. Vague ideas (`uncertain`) score too low to appear at any age. Every item shows its reason in plain words.
+- **"This week" counts the user's own decisions.** Completed and taken-on counts use `lastReviewedAt`, which only the user's actions set. Work the analysis recorded as already done is not credited to the week.
+- **Suggested priorities are rules, with the reason shown**: a due reminder first, then work already started, then priority, then staleness; ties break alphabetically so the order is stable.
+- **No new Firestore index or rule.** `remindOn` and `in_progress` were already permitted by the rules; the workspace queries use single-field filters only.
+
+**Verified**
+
+- 184 unit tests pass (26 new for insights, including ISO week year boundaries).
+- Emulator tests in CI: reminder set and cleared under the security rules, `in_progress` transitions, `loadWorkspace` contents, and refusal for another user.
+- Browser test in CI (15 steps, all passing): approve in the Inbox, start the task on Execution, set a reminder, regroup, see it under Forgotten with its reason, weekly report, dashboard overview on desktop and at 390 px. Screenshots reviewed from the CI log.
+- Lint, typecheck and production build pass.
+
+**Not verified**
+
+- Behaviour with real data: every figure on these screens so far comes from one synthetic task.
+- The 300 open / 200 completed task caps in `loadWorkspace` are untested at volume. Beyond them the counts would be understated without warning.
+- Weeks are ISO weeks in UTC. For a user in Lagos (UTC+1) the week turns over at 01:00 on Monday, not midnight.
+- The emulator stall noted in Milestone 7 still appears (three steps took about 30 seconds each).
+
 ## Milestone 7: Discovery interface (15 November 2026)
 
 **Objective.** Let the user review what was discovered: approve, dismiss, edit, re-prioritise, assign to a project, and see projects with their decisions and conversations.

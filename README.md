@@ -4,7 +4,7 @@ Your AI conversations remember what you discussed. Recall makes sure you do some
 
 Recall analyses a Claude data export, finds unfinished projects and commitments, backs each one with a quote from the source conversation, and helps you resume the work. It runs entirely on free tiers: Next.js on Vercel Hobby, Firebase Authentication and Cloud Firestore on the Spark plan, and the Gemini Developer API free tier.
 
-**Status:** Milestone 7 of 10 (discovery interface). You can import a Claude export, have it analysed, and review the findings in an Inbox: approve, dismiss, edit and group them into projects. The AI pipeline has been tested with a stand-in model only; it has not yet run against Gemini.
+**Status:** Milestone 8 of 10 (execution dashboard). You can import a Claude export, have it analysed, review the findings in an Inbox, then work from them: an Execution Inbox, a Forgotten Work list, a weekly report and a daily overview. The AI pipeline has been tested with a stand-in model only; it has not yet run against Gemini.
 
 ## Requirements
 
