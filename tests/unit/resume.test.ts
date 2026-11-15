@@ -239,3 +239,26 @@ describe("insights", () => {
     expect(resumeResponseSchema.safeParse({ progress: [{ text: "x", ref: "message 3", quote: "y" }] }).success).toBe(false);
   });
 });
+
+describe("safeSourceUrl", () => {
+  const id = "claude_0123abcd-0123-4abc-8abc-0123456789ab";
+  const derived = "https://claude.ai/chat/0123abcd-0123-4abc-8abc-0123456789ab";
+
+  it("uses a stored link only when it points at the source's own chat page", async () => {
+    const { safeSourceUrl } = await import("@/lib/discoveries/model");
+    expect(safeSourceUrl("https://claude.ai/chat/aaaa-bbbb", id)).toBe("https://claude.ai/chat/aaaa-bbbb");
+    for (const hostile of [
+      "javascript:alert(1)",
+      "https://claude.ai.evil.example/chat/aaaa",
+      "https://evil.example/https://claude.ai/chat/aaaa",
+      "http://claude.ai/chat/aaaa",
+      "https://claude.ai/chat/aaaa?next=//evil.example",
+      "data:text/html,x",
+      42,
+      null,
+    ]) {
+      expect(safeSourceUrl(hostile, id)).toBe(derived);
+    }
+    expect(safeSourceUrl("javascript:alert(1)", "unknown_source_1")).toBeNull();
+  });
+});

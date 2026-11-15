@@ -174,8 +174,9 @@ export function AnalysisPanel({ uid }: { uid: string }) {
       <Card>
         <h2 className="text-base font-semibold">AI analysis is not enabled for this account</h2>
         <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-          {n(overview.conversations)} conversations are saved. To analyse them, add this account&apos;s
-          email address to ALLOWED_EMAILS on the server.
+          {n(overview.conversations)} conversations are saved, but whoever runs this site has not
+          enabled AI analysis for your account. If that is you, add this account&apos;s email address to
+          ALLOWED_EMAILS on the server.
         </p>
       </Card>
     );

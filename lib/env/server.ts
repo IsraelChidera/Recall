@@ -7,8 +7,8 @@ import { EnvError } from "./client";
 /**
  * Server-only secrets. Never prefix these with NEXT_PUBLIC_.
  *
- * GEMINI_API_KEY is optional until Milestone 6 so earlier milestones can run
- * without it; the AI pipeline checks for it before making any request.
+ * GEMINI_API_KEY is optional here so the app can run with the stand-in
+ * provider; the AI pipeline checks for it before making any real request.
  */
 export const serverEnvSchema = z.object({
   FIREBASE_PROJECT_ID: z.string().min(1),

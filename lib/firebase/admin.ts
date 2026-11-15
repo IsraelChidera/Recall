@@ -9,7 +9,7 @@ import { getServerEnv } from "@/lib/env/server";
 /**
  * Firebase Admin SDK. It bypasses Firestore Security Rules, so every caller
  * must first verify the request's ID token and build paths from that uid only.
- * The `withAuth` guard that enforces this arrives in Milestone 3.
+ * The `withAuth` guard in lib/server/with-auth.ts enforces this for every API route.
  */
 function getAdminApp(): App {
   if (getApps().length > 0) return getApp();

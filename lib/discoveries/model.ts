@@ -150,6 +150,17 @@ export function sourceUrlFor(conversationId: string): string | null {
   return match ? `https://claude.ai/chat/${match[1]}` : null;
 }
 
+/**
+ * The link to show for a conversation. A stored link is used only if it points
+ * at the source's own site; anything else falls back to the link derived from
+ * the conversation id. Stored links are written by the browser during import,
+ * so they are not trusted as they stand.
+ */
+export function safeSourceUrl(stored: unknown, conversationId: string): string | null {
+  if (typeof stored === "string" && /^https:\/\/claude\.ai\/chat\/[0-9a-f-]{1,64}$/i.test(stored)) return stored;
+  return sourceUrlFor(conversationId);
+}
+
 export const TITLE_MAX = 300;
 export const DESCRIPTION_MAX = 4_000;
 export const PROJECT_NAME_MAX = 200;

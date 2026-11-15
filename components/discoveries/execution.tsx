@@ -7,7 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { groupTasks, type Grouping } from "@/lib/discoveries/insights";
 import { cn } from "@/lib/utils";
 
-import { EmptyState, LoadError, LoadingBlock, Notice } from "./shared";
+import { EmptyState, LoadError, LoadingBlock, Notice, TruncatedNote } from "./shared";
 import { TaskCard } from "./task-card";
 import { useWorkspace } from "./use-workspace";
 
@@ -51,6 +51,7 @@ export function ExecutionInbox() {
       </div>
 
       <Notice text={notice} />
+      <TruncatedNote show={state.workspace.truncated} />
 
       {active.length === 0 ? (
         <EmptyState>

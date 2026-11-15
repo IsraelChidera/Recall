@@ -7,7 +7,7 @@ import { buildWeeklyReport, isoWeek, previousWeek } from "@/lib/discoveries/insi
 import type { TaskView } from "@/lib/discoveries/model";
 import { cn } from "@/lib/utils";
 
-import { EmptyState, LoadError, LoadingBlock, Section } from "./shared";
+import { EmptyState, LoadError, LoadingBlock, Section, TruncatedNote } from "./shared";
 import { useWorkspace } from "./use-workspace";
 
 const dayFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -71,6 +71,7 @@ export function WeeklyIntelligence() {
         </EmptyState>
       ) : (
         <>
+          <TruncatedNote show={state.workspace.truncated} />
           <dl className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4">
             {[
               ["Completed", report.completed.length],

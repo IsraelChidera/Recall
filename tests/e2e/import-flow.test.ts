@@ -49,6 +49,14 @@ async function storedCount(path: string): Promise<number> {
   return body.documents?.length ?? 0;
 }
 
+/** Prints how long a step took, to locate slow steps in a CI run. */
+let lapAt = Date.now();
+function lap(label: string) {
+  const now = Date.now();
+  console.log(`LAP ${label} ${now - lapAt}ms`);
+  lapAt = now;
+}
+
 /** Waits for text to appear; on timeout, reports what the page showed instead. */
 async function waitForText(text: string, timeout = 120_000) {
   try {
@@ -250,8 +258,11 @@ it("saves only what is new or changed from a newer export", async () => {
 });
 
 it("asks for consent before any AI request is made", async () => {
+  lap("before consent test");
   await page.goto(`${BASE}/dashboard`);
+  lap("dashboard loaded");
   await waitForText("Before Recall reads your conversations with AI");
+  lap("consent notice shown");
   await shot("dashboard-consent");
   const disabled = await page.evaluate(
     () => [...document.querySelectorAll("button")].find((b) => b.textContent === "Allow AI analysis")?.disabled,
@@ -261,8 +272,10 @@ it("asks for consent before any AI request is made", async () => {
   expect(await storedCount("jobs")).toBe(0);
 
   await page.click("input[type=checkbox]");
+  lap("consent checks");
   await clickButton("Allow AI analysis");
   await waitForText("62 conversations are waiting to be analysed");
+  lap("consent saved and overview shown");
 });
 
 it("lets the user leave a conversation out", async () => {
@@ -345,12 +358,15 @@ it("shows a project with its outstanding work and conversations", async () => {
 });
 
 it("runs approved work from the Execution Inbox: start, remind, regroup", async () => {
+  lap("before execution test");
   await page.goto(`${BASE}/execute`);
   await waitForText("Send the synthetic migration report");
   await waitForText("High priority (1)");
+  lap("execution loaded");
   await clickButton("Start");
   await waitForText("Started: ");
   await waitForText("In progress");
+  lap("started");
 
   await clickButton("Edit");
   const remind = (await page.waitForSelector('input[id$="-remind"]')) as ElementHandle<HTMLInputElement>;
@@ -358,8 +374,10 @@ it("runs approved work from the Execution Inbox: start, remind, regroup", async 
   const pad = (value: number) => String(value).padStart(2, "0");
   // Typed the way a person types into a date field: month, day, year.
   await remind.type(`${pad(tomorrow.getMonth() + 1)}${pad(tomorrow.getDate())}${tomorrow.getFullYear()}`);
+  lap("reminder typed");
   await clickButton("Save changes");
   await waitForText("Reminder ");
+  lap("reminder saved");
 
   const [stored] = (await storedDocs("tasks")).filter((task) => task.fields?.status?.stringValue === "in_progress");
   expect(stored?.fields?.title?.stringValue).toBe("Send the synthetic migration report");
@@ -453,10 +471,13 @@ it("summarises the week and the day", async () => {
 });
 
 it("deletes everything on request, including what was discovered", async () => {
+  lap("before delete test");
   await page.goto(`${BASE}/import`);
   await clickButton("Delete all imported conversations");
+  lap("import page loaded");
   await clickButton("Delete everything");
   await waitForText("Nothing has been saved yet.");
+  lap("deleted");
   expect(await storedCount("conversations")).toBe(0);
   expect(await storedCount("imports")).toBe(0);
   expect(await storedCount("sourceIndex")).toBe(0);

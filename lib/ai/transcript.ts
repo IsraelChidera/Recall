@@ -32,17 +32,24 @@ function shorten(text: string, limit: number): string {
   return `${text.slice(0, head)}\n[…]\n${text.slice(-tail)}`;
 }
 
+/**
+ * Stored messages are written by the browser, so their shape is checked here
+ * instead of trusted: anything that is not text becomes empty text.
+ */
 export function toPromptMessages(messages: StoredMessage[]): PromptMessage[] {
-  return messages.map((message, index) => ({
-    ordinal: index + 1,
-    id: message.id,
-    sender: message.sender,
-    createdAt: message.createdAt,
-    text: shorten(
-      redact(message.text),
-      message.sender === "human" ? TRANSCRIPT_LIMITS.humanChars : TRANSCRIPT_LIMITS.assistantChars,
-    ),
-  }));
+  return messages.map((message, index) => {
+    const sender = message?.sender === "assistant" ? "assistant" : "human";
+    return {
+      ordinal: index + 1,
+      id: typeof message?.id === "string" ? message.id : "",
+      sender,
+      createdAt: typeof message?.createdAt === "string" ? message.createdAt : null,
+      text: shorten(
+        redact(typeof message?.text === "string" ? message.text : ""),
+        sender === "human" ? TRANSCRIPT_LIMITS.humanChars : TRANSCRIPT_LIMITS.assistantChars,
+      ),
+    };
+  });
 }
 
 export function renderMessage(message: PromptMessage): string {

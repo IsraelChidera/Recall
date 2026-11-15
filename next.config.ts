@@ -15,7 +15,10 @@ const connectSources = [
 
 // Static policy without nonces. Nonces require every page to render per
 // request, which would give up the prerendered shell. 'unsafe-inline' for
-// scripts is the cost; everything else is locked down. Revisit in Milestone 10.
+// scripts is the cost; everything else is locked down. Reviewed in Milestone
+// 10 and kept: the app renders no user or model text as HTML (no
+// dangerouslySetInnerHTML anywhere), loads no third-party script, and
+// connect-src limits where a script could send data.
 const contentSecurityPolicy = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
