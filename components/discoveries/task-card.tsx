@@ -23,6 +23,11 @@ const dateFormat = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" });
 const fieldClass =
   "w-full rounded-md border border-input bg-card px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
+function toDateInput(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export type TaskAction = (task: TaskView, edit: TaskEdit, label: string) => Promise<void>;
 
 export function TaskCard({
@@ -59,6 +64,18 @@ export function TaskCard({
             <>
               <span aria-hidden="true">·</span>
               <span>{project.name}</span>
+            </>
+          ) : null}
+          {task.status === "in_progress" ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>In progress</span>
+            </>
+          ) : null}
+          {task.remindOn ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>Reminder {dateFormat.format(task.remindOn)}</span>
             </>
           ) : null}
           {task.dueDate ? (
@@ -142,9 +159,24 @@ export function TaskCard({
             </>
           ) : null}
           {task.status === "approved" ? (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => act({ status: "awaiting_review" }, "Moved back to review")}>
-              Move back to review
-            </Button>
+            <>
+              <Button size="sm" disabled={busy} onClick={() => act({ status: "in_progress" }, "Started")}>
+                Start
+              </Button>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => act({ status: "awaiting_review" }, "Moved back to review")}>
+                Move back to review
+              </Button>
+            </>
+          ) : null}
+          {task.status === "in_progress" ? (
+            <>
+              <Button size="sm" disabled={busy} onClick={() => act({ status: "completed" }, "Marked as done")}>
+                Mark as done
+              </Button>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => act({ status: "approved" }, "Paused")}>
+                Pause
+              </Button>
+            </>
           ) : null}
           {task.status === "dismissed" ? (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => act({ status: "awaiting_review" }, "Restored")}>
@@ -188,6 +220,7 @@ function EditForm({
   const [description, setDescription] = useState(task.description);
   const [priority, setPriority] = useState<Priority>(task.priority);
   const [projectId, setProjectId] = useState(task.projectId ?? "");
+  const [remindOn, setRemindOn] = useState(task.remindOn ? toDateInput(task.remindOn) : "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -196,7 +229,14 @@ function EditForm({
     setError(null);
     setSaving(true);
     try {
-      await onSave({ title, description, priority, projectId: projectId || null });
+      await onSave({
+        title,
+        description,
+        priority,
+        projectId: projectId || null,
+        // Midday local time, so the date does not shift across time zones.
+        remindOn: remindOn ? new Date(`${remindOn}T12:00:00`) : null,
+      });
     } catch (caught) {
       setError(
         caught instanceof InvalidEditError
@@ -261,6 +301,19 @@ function EditForm({
             ))}
           </select>
         </div>
+      </div>
+      <div className="flex flex-col gap-2 sm:max-w-[calc(50%-0.5rem)]">
+        <Label htmlFor={`${id}-remind`}>Remind me on</Label>
+        <input
+          id={`${id}-remind`}
+          type="date"
+          value={remindOn}
+          onChange={(event) => setRemindOn(event.target.value)}
+          className={fieldClass}
+        />
+        <p className="text-xs text-muted-foreground">
+          Shown on your dashboard from that day. Recall does not send emails or notifications.
+        </p>
       </div>
       {error ? (
         <p role="alert" className="text-sm text-destructive">

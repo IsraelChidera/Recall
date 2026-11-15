@@ -1,7 +1,7 @@
 "use client";
 
 import { signOut } from "firebase/auth";
-import { FolderKanban, Inbox, LayoutDashboard, LogOut, Upload } from "lucide-react";
+import { CalendarRange, FolderKanban, History, Inbox, LayoutDashboard, ListChecks, LogOut, Upload } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -16,7 +16,10 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/execute", label: "Execution", icon: ListChecks },
   { href: "/projects", label: "Projects", icon: FolderKanban },
+  { href: "/forgotten", label: "Forgotten", icon: History },
+  { href: "/weekly", label: "Weekly", icon: CalendarRange },
   { href: "/import", label: "Import", icon: Upload },
 ];
 

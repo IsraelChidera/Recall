@@ -4,7 +4,15 @@ import { initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/
 import { collection, doc, getDoc, getDocs, setDoc, type Firestore } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { editProject, listProjects, listTasks, loadProject, PAGE_SIZE, reviewTask } from "@/lib/discoveries/store";
+import {
+  editProject,
+  listProjects,
+  listTasks,
+  loadProject,
+  loadWorkspace,
+  PAGE_SIZE,
+  reviewTask,
+} from "@/lib/discoveries/store";
 
 /**
  * The review screens' reads and writes, against the emulator with security
@@ -181,6 +189,35 @@ describe("reviewing tasks", () => {
     const [project] = await listProjects(db, UID);
     expect(project).toMatchObject({ name: "Migration report", description: "For the client.", archived: true });
     expect(await loadProject(db, UID, "missing")).toBeNull();
+  });
+
+  it("sets and clears a reminder, and tracks work in progress", async () => {
+    await reviewTask(db, UID, "t1", { status: "approved" });
+    await reviewTask(db, UID, "t1", { status: "in_progress", remindOn: new Date("2026-12-01T12:00:00Z") });
+    let saved = await task("t1");
+    expect(saved.status).toBe("in_progress");
+    expect(saved.remindOn.toDate().toISOString()).toBe("2026-12-01T12:00:00.000Z");
+
+    await reviewTask(db, UID, "t1", { remindOn: null });
+    saved = await task("t1");
+    expect(saved.remindOn).toBeNull();
+    await expect(reviewTask(db, UID, "t1", { remindOn: new Date("not a date") })).rejects.toThrow(/reminder/i);
+  });
+
+  it("loads the whole workspace: open and completed tasks and projects, without dismissed ones", async () => {
+    await seed(async (admin) => {
+      await setDoc(doc(admin, `users/${UID}/tasks/t2`), serverTask({ status: "completed" }));
+      await setDoc(doc(admin, `users/${UID}/tasks/t3`), serverTask({ status: "dismissed" }));
+      await setDoc(doc(admin, `users/${UID}/tasks/t4`), serverTask({ status: "in_progress" }));
+    });
+    const workspace = await loadWorkspace(db, UID);
+    expect(workspace.tasks.map((entry) => entry.id).sort()).toEqual(["t1", "t2", "t4"]);
+    expect(workspace.tasks.find((entry) => entry.id === "t1")).toMatchObject({
+      commitmentClass: "explicit_commitment",
+      remindOn: null,
+    });
+    expect(workspace.projects.map((entry) => entry.id)).toEqual(["p1"]);
+    await expect(loadWorkspace(db, "bob")).rejects.toThrow();
   });
 
   it("cannot be used on another user's task", async () => {
