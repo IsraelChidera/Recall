@@ -1,7 +1,7 @@
 "use client";
 
 import { signOut } from "firebase/auth";
-import { LayoutDashboard, LogOut, Upload } from "lucide-react";
+import { FolderKanban, Inbox, LayoutDashboard, LogOut, Upload } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 // Screens are added here as their milestones land.
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/import", label: "Import", icon: Upload },
 ];
 
@@ -75,15 +77,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Link href="/dashboard" className="px-2 font-mono text-xs tracking-widest uppercase">
           Recall
         </Link>
-        <nav aria-label="Main" className="flex gap-1 md:flex-col">
+        <nav aria-label="Main" className="-mx-1 flex gap-1 overflow-x-auto px-1 md:mx-0 md:flex-col md:overflow-visible md:px-0">
           {NAV.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
-              aria-current={pathname === href ? "page" : undefined}
+              aria-current={pathname === href || pathname.startsWith(`${href}/`) ? "page" : undefined}
               className={cn(
-                "flex items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-                pathname === href && "bg-accent font-medium text-foreground",
+                "flex shrink-0 items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                (pathname === href || pathname.startsWith(`${href}/`)) && "bg-accent font-medium text-foreground",
               )}
             >
               <Icon className="size-4" aria-hidden="true" />

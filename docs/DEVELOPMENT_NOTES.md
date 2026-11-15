@@ -2,6 +2,37 @@
 
 Decisions and verified results per milestone. Newest milestone first.
 
+## Milestone 7: Discovery interface (15 November 2026)
+
+**Objective.** Let the user review what was discovered: approve, dismiss, edit, re-prioritise, assign to a project, and see projects with their decisions and conversations.
+
+**What was built**
+
+- **Inbox** (`/inbox`) with four lists: To review, Approved, Done, Dismissed. Each discovery shows its quotes with the date and an "Open in Claude" link, the suggested next step, and a note when Recall is unsure or when a later message suggests the work is done.
+- **Review actions**: approve, dismiss, restore, mark as done, reopen, move back to review, and edit (title, notes, priority, project). Each status change can be undone from a notice. Every decision is written with an activity log entry in one batch.
+- **Projects** (`/projects`, `/projects/{id}`): description, outstanding tasks, decisions with their quotes, completed work, related conversations with links, suggested next steps; rename, describe, archive.
+- **Validation mirrors the security rules** (`lib/discoveries/model.ts`), so a bad edit is explained in the form instead of being refused by the server.
+- **`scripts/set-service-account.mjs`** writes the service account into `.env.local` in the correct format. Added after a hand-pasted key turned out not to be a private key.
+
+**Decisions**
+
+- Review writes go straight from the browser under the security rules. Users can change only status, priority, wording, project and review time; evidence, confidence and source stay server-owned.
+- Projects cannot be created by hand. A task can be assigned to any discovered project or to none.
+- The app shell sits inside a Suspense boundary. It reads the current path, which on a dynamic route is only known at request time; without the boundary the production build fails.
+- Per-tab counts are loaded one after another, like the dashboard overview.
+
+**Verified**
+
+- Unit tests for reading documents defensively, link building, patches and validation.
+- Emulator tests with rules on (`tests/rules/review-store.test.ts`): list, approve, dismiss and restore, edit without touching evidence, assign and unassign a project, mark done, load and edit a project, isolation from another user, pagination.
+- Browser test: edit, approve, undo, approve in the Inbox, checked against the stored document; project page shows outstanding work and conversations.
+- **Screens inspected.** The browser test now copies screenshots into the CI log, which made it possible to look at the Inbox, the edit form, the project page (desktop and 390 px), the analysis panel and the saved-import screen. Fixed from that review: navigation overflowing on narrow screens, an empty gap above the Inbox list, and stale wording on the saved-import screen.
+
+**Not verified**
+
+- Real findings. Everything shown so far comes from the stand-in model on synthetic conversations.
+- The four Firestore composite indexes in production. The emulator does not require indexes, so a missing index would only show against the real project.
+
 ## Per-user AI limits (15 November 2026)
 
 **Why.** The Gemini quota belongs to the project, so one daily cap per user does not protect it once there is more than one user: each could use the whole allowance.

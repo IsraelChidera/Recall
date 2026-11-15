@@ -4,7 +4,7 @@ Your AI conversations remember what you discussed. Recall makes sure you do some
 
 Recall analyses a Claude data export, finds unfinished projects and commitments, backs each one with a quote from the source conversation, and helps you resume the work. It runs entirely on free tiers: Next.js on Vercel Hobby, Firebase Authentication and Cloud Firestore on the Spark plan, and the Gemini Developer API free tier.
 
-**Status:** Milestone 6 of 10 (AI intelligence). You can import a Claude export and have Recall analyse it for unfinished work, with every finding backed by a quote. Reviewing and managing findings arrives next. The AI pipeline has been tested with a stand-in model only; it has not yet run against Gemini.
+**Status:** Milestone 7 of 10 (discovery interface). You can import a Claude export, have it analysed, and review the findings in an Inbox: approve, dismiss, edit and group them into projects. The AI pipeline has been tested with a stand-in model only; it has not yet run against Gemini.
 
 ## Requirements
 
@@ -59,6 +59,16 @@ This replaces the rules of that project's default Firestore database. Use a Fire
 ## Environment variables
 
 Documented in [`.env.example`](.env.example). `NEXT_PUBLIC_FIREBASE_*` values are the public Firebase web config. Everything else is a server-only secret and must never be prefixed with `NEXT_PUBLIC_`. On Vercel, add them under Project Settings, Environment Variables.
+
+## Setting the service account
+
+The server needs a Firebase service account to verify sign-ins. Download a key from Firebase console, Project settings, Service accounts, Generate new private key, then:
+
+```bash
+node scripts/set-service-account.mjs path/to/downloaded-key.json
+```
+
+This writes `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY` into `.env.local` in the right format without printing the key.
 
 ## Inspecting your Claude export
 

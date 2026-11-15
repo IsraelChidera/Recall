@@ -125,10 +125,14 @@ function Findings({ overview }: { overview: Overview }) {
           </li>
         ))}
       </ul>
-      <p className="text-xs text-muted-foreground">
-        {overview.toReview > overview.findings.length ? `Showing ${overview.findings.length}. ` : ""}
-        Reviewing, approving and dismissing arrive in the next milestone.
-      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Link href="/inbox" className={buttonVariants({ size: "sm" })}>
+          Review in the Inbox
+        </Link>
+        {overview.toReview > overview.findings.length ? (
+          <span className="text-xs text-muted-foreground">Showing {overview.findings.length} here.</span>
+        ) : null}
+      </div>
     </div>
   );
 }

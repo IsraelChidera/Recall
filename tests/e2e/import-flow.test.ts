@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -57,6 +57,42 @@ async function waitForText(text: string, timeout = 120_000) {
     const shown = await page.evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(0, 600));
     throw new Error(`Timed out waiting for "${text}". The page showed: ${shown}`);
   }
+}
+
+/** Saves a screenshot when E2E_SCREENSHOTS names a folder; CI uploads them for review. */
+async function shot(name: string) {
+  const dir = process.env.E2E_SCREENSHOTS;
+  if (!dir) return;
+  mkdirSync(dir, { recursive: true });
+  await page.screenshot({ path: join(dir, `${name}.png`), fullPage: true });
+  // Optionally also write a small copy into the log, for reviewing a CI run
+  // from somewhere the artifact store cannot be reached. Synthetic data only.
+  if (process.env.E2E_SCREENSHOTS_TO_LOG === "true") {
+    const jpeg = Buffer.from(await page.screenshot({ type: "jpeg", quality: 55, fullPage: true })).toString("base64");
+    const size = 3000;
+    const parts = Math.ceil(jpeg.length / size);
+    for (let part = 0; part < parts; part++) {
+      console.log(`SHOT ${name} ${part + 1}/${parts} ${jpeg.slice(part * size, (part + 1) * size)}`);
+    }
+  }
+}
+
+type StoredDoc = { name: string; fields?: Record<string, { stringValue?: string }> };
+
+async function storedDocs(path: string): Promise<StoredDoc[]> {
+  const response = await fetch(`${FIRESTORE}/users/${uid}/${path}?pageSize=300`, {
+    headers: { Authorization: "Bearer owner" },
+  });
+  return ((await response.json()) as { documents?: StoredDoc[] }).documents ?? [];
+}
+
+async function clickTab(label: string) {
+  const handle = await page.waitForFunction(
+    (needle) => [...document.querySelectorAll("[role=tab]")].find((tab) => tab.textContent?.startsWith(needle)),
+    { timeout: 120_000 },
+    label,
+  );
+  await (handle.asElement() as ElementHandle<Element>).click();
 }
 
 async function clickButton(label: string) {
@@ -180,6 +216,7 @@ it("previews an export without saving anything", async () => {
 it("saves the conversations when asked", async () => {
   await clickButton("Save 60 conversations");
   await waitForText("Saved 60 conversations");
+  await shot("import-saved");
   expect(await storedCount("conversations")).toBe(60);
   expect(await storedCount("imports")).toBe(1);
   expect(await storedCount("sources")).toBe(1);
@@ -211,6 +248,7 @@ it("saves only what is new or changed from a newer export", async () => {
 it("asks for consent before any AI request is made", async () => {
   await page.goto(`${BASE}/dashboard`);
   await waitForText("Before Recall reads your conversations with AI");
+  await shot("dashboard-consent");
   const disabled = await page.evaluate(
     () => [...document.querySelectorAll("button")].find((b) => b.textContent === "Allow AI analysis")?.disabled,
   );
@@ -235,6 +273,7 @@ it("analyses the conversations and shows findings with their quotes", async () =
   await clickButton("Start analysis");
   await waitForText("Analysis complete", 150_000);
   await waitForText("1 discovery to review");
+  await shot("dashboard-analysis-complete");
   await waitForText("I will finish the synthetic migration report by Friday.");
   // 15 identical commitments merged into one open task; 15 already finished.
   expect(await storedCount("tasks")).toBe(16);
@@ -242,6 +281,63 @@ it("analyses the conversations and shows findings with their quotes", async () =
   expect(await storedCount("usage")).toBe(1);
   expect(await storedCount("jobs")).toBe(1);
   expect(await page.evaluate(() => document.body.innerText)).toMatch(/\d+ of 150 AI requests used today/);
+});
+
+it("reviews a discovery in the inbox: edit, approve, undo, approve", async () => {
+  await page.click('main a[href="/inbox"]');
+  await page.waitForFunction(() => location.pathname === "/inbox");
+  await waitForText("I will finish the synthetic migration report by Friday.");
+  await waitForText("Open in Claude");
+  await shot("inbox-to-review");
+
+  await clickButton("Edit");
+  const title = (await page.waitForSelector('input[id$="-title"]')) as ElementHandle<HTMLInputElement>;
+  await title.click({ count: 3 });
+  await title.type("Send the synthetic migration report");
+  await page.select('select[id$="-priority"]', "high");
+  await shot("inbox-editing");
+  await clickButton("Save changes");
+  await waitForText("Saved changes: ");
+  await waitForText("Send the synthetic migration report");
+  await waitForText("High priority");
+
+  await clickButton("Approve");
+  await waitForText("Approved: ");
+  await waitForText("Nothing is waiting for you");
+  await clickButton("Undo");
+  await waitForText("I will finish the synthetic migration report by Friday.");
+  await clickButton("Approve");
+  await waitForText("Nothing is waiting for you");
+
+  const approved = (await storedDocs("tasks")).filter((task) => task.fields?.status?.stringValue === "approved");
+  expect(approved).toHaveLength(1);
+  expect(approved[0]!.fields?.title?.stringValue).toBe("Send the synthetic migration report");
+  expect(approved[0]!.fields?.priority?.stringValue).toBe("high");
+
+  await clickTab("Approved");
+  await waitForText("Move back to review");
+  await shot("inbox-approved");
+  await clickTab("Done");
+  await waitForText("Reopen", 5_000).catch(() => {});
+  await shot("inbox-done");
+});
+
+it("shows a project with its outstanding work and conversations", async () => {
+  await page.goto(`${BASE}/projects`);
+  const link = (await page.waitForSelector('main a[href^="/projects/"]')) as ElementHandle<HTMLAnchorElement>;
+  await shot("projects-list");
+  await link.click();
+  await waitForText("Related conversations");
+  await waitForText("Outstanding (");
+  await shot("project-detail");
+  await page.setViewport({ width: 390, height: 900 });
+  await shot("project-detail-mobile");
+  await page.goto(`${BASE}/inbox`);
+  await waitForText("To review");
+  await clickTab("Approved");
+  await waitForText("Move back to review");
+  await shot("inbox-approved-mobile");
+  await page.setViewport({ width: 1280, height: 1000 });
 });
 
 it("deletes everything on request, including what was discovered", async () => {
