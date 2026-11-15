@@ -129,7 +129,7 @@ async function toView(
   };
 }
 
-async function assertConsent(deps: AnalysisDeps, uid: string): Promise<void> {
+export async function assertConsent(deps: AnalysisDeps, uid: string): Promise<void> {
   const profile = (await deps.db.doc(userPath(uid)).get()).data();
   if (profile?.aiConsentAccepted !== true || profile?.aiConsentVersion !== AI_CONSENT_VERSION) {
     throw new JobError(403, "AI analysis needs your consent first.");

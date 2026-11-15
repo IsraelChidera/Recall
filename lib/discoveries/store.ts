@@ -15,13 +15,18 @@ import {
 } from "firebase/firestore";
 
 import type { TaskStatus } from "@/lib/domain/discovery";
+import type { StoredMessage } from "@/lib/import/plan";
+import { buildResumeContext, type ResumeContext, type ResumeConversation } from "@/lib/resume/context";
+import { toResumeInsights, type ResumeInsights } from "@/lib/resume/insights";
 
 import {
   activityTypeFor,
   projectPatch,
+  sourceUrlFor,
   taskPatch,
   toProjectView,
   toTaskView,
+  type DecisionView,
   type ProjectView,
   type TaskEdit,
   type TaskView,
@@ -159,4 +164,62 @@ export async function editProject(
     updatedAt: serverTimestamp(),
   });
   await batch.commit();
+}
+
+export type ResumeData = {
+  task: TaskView;
+  context: ResumeContext;
+  /** AI-identified points saved earlier for this task, if any. */
+  insights: ResumeInsights | null;
+};
+
+/**
+ * Retrieves what is needed to resume a task: the task, its source
+ * conversation's messages and its project's decisions. Read under the
+ * security rules, so only the owner's data can come back.
+ */
+export async function loadResume(db: Firestore, uid: string, taskId: string): Promise<ResumeData | null> {
+  const snapshot = await getDoc(doc(db, userPath(uid, "tasks", taskId)));
+  const data = snapshot.data();
+  if (!data) return null;
+  const task = toTaskView(snapshot.id, data);
+
+  const conversationId =
+    (typeof data.sourceConversationId === "string" && data.sourceConversationId) ||
+    task.evidence.find((entry) => entry.kind === "commitment")?.conversationId ||
+    task.sourceConversationIds[0] ||
+    "";
+  let conversation: ResumeConversation | null = null;
+  let messages: StoredMessage[] = [];
+  if (conversationId) {
+    const entry = await getDoc(doc(db, userPath(uid, "conversations", conversationId)));
+    const stored = entry.data();
+    if (stored) {
+      conversation = {
+        id: conversationId,
+        title: typeof stored.title === "string" && stored.title ? stored.title : "Untitled conversation",
+        sourceUrl: (typeof stored.sourceUrl === "string" && stored.sourceUrl) || sourceUrlFor(conversationId),
+      };
+      const chunks = await getDocs(
+        query(collection(db, userPath(uid, "conversations", conversationId, "chunks")), orderBy("index")),
+      );
+      messages = chunks.docs.flatMap((chunk) => (chunk.data().messages ?? []) as StoredMessage[]);
+    }
+  }
+
+  let decisions: DecisionView[] = [];
+  if (task.projectId) {
+    const project = await getDoc(doc(db, userPath(uid, "projects", task.projectId)));
+    const stored = project.data();
+    if (stored) decisions = toProjectView(project.id, stored).decisions;
+  }
+
+  // Saved points describe one conversation. If the task now points elsewhere, they no longer apply.
+  const saved = toResumeInsights(data.resume);
+  const savedFor = (data.resume as { conversationId?: unknown } | undefined)?.conversationId;
+  return {
+    task,
+    context: buildResumeContext({ task, conversation, messages, decisions }),
+    insights: saved && savedFor === conversationId ? saved : null,
+  };
 }

@@ -168,7 +168,11 @@ beforeAll(async () => {
   // without failing it.
   page.setDefaultTimeout(120_000);
   page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
+    if (message.type() === "error") {
+      // The address says which request failed; the query string is dropped.
+      const from = message.location().url?.split("?")[0];
+      consoleErrors.push(from ? `${message.text()} (${from})` : message.text());
+    }
   });
   page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${String(error)}`));
 
@@ -366,6 +370,57 @@ it("runs approved work from the Execution Inbox: start, remind, regroup", async 
   await clickButton("Status");
   await waitForText("In progress (1)");
   await shot("execution");
+});
+
+it("resumes a task: real context, a prompt to copy, and optional AI points", async () => {
+  await page.goto(`${BASE}/execute`);
+  await waitForText("Send the synthetic migration report");
+  await page.click('main a[href^="/resume/"]');
+  await waitForText("Where you left it");
+  await waitForText("where you said it");
+  await waitForText("Continuation prompt");
+
+  const promptText = () =>
+    page.$eval('textarea[aria-label="Continuation prompt"]', (element) => (element as HTMLTextAreaElement).value);
+  const before = await promptText();
+  expect(before).toContain('"I will finish the synthetic migration report by Friday."');
+  expect(before).toContain("You do not have that conversation");
+  expect(before).toContain("Synthetic answer 0.");
+  expect(before).not.toContain("What was still open");
+
+  const original = await page.$eval('main a[href^="https://claude.ai/chat/"]', (element) => element.getAttribute("href"));
+  expect(original).toMatch(/^https:\/\/claude\.ai\/chat\/[0-9a-f-]{36}$/);
+
+  await clickButton("Find the state of the work");
+  await waitForText("Include these points in the prompt");
+  await waitForText("Still open");
+  const after = await promptText();
+  expect(after).toContain("## What was still open");
+  // The stand-in model also offers a point with an invented quote. It must not appear.
+  expect(after).not.toContain("A final version had been delivered.");
+  expect(await page.evaluate(() => document.body.innerText)).not.toContain("A final version had been delivered.");
+
+  await browser.defaultBrowserContext().overridePermissions(BASE, ["clipboard-read", "clipboard-write"]);
+  // The clipboard is only available to the focused tab.
+  await page.bringToFront();
+  await clickButton("Copy prompt");
+  await page.waitForFunction(
+    () => /Copied\. Paste it|Your browser blocked copying/.test(document.body.innerText),
+    { timeout: 30_000 },
+  );
+  const outcome = await page.evaluate(() => document.body.innerText);
+  expect(outcome).toContain("Copied. Paste it into a chat to continue.");
+  // Reading the clipboard back is refused by some headless browsers. The log says which happened.
+  const pasted = await page.evaluate(() => navigator.clipboard.readText().catch(() => null));
+  console.log(`CLIPBOARD ${pasted === null ? "could not be read back" : "read back"}`);
+  if (pasted !== null) expect(pasted).toBe(after);
+
+  const [stored] = (await storedDocs("tasks")).filter((task) => task.fields?.status?.stringValue === "in_progress");
+  expect(stored?.fields?.resume).toBeTruthy();
+  await shot("resume");
+  await page.setViewport({ width: 390, height: 900 });
+  await shot("resume-mobile");
+  await page.setViewport({ width: 1280, height: 1000 });
 });
 
 it("shows the commitment under Forgotten Work, with the reason", async () => {

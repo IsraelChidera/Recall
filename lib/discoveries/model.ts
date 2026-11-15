@@ -13,6 +13,8 @@ import {
 export type EvidenceView = {
   kind: "commitment" | "completion";
   conversationId: string;
+  /** The message the quote came from. Empty on records without one. */
+  messageId: string;
   messageAt: Date | null;
   quote: string;
 };
@@ -95,6 +97,7 @@ export function toTaskView(id: string, data: Record<string, unknown>): TaskView 
       .map((entry) => ({
         kind: entry.kind === "completion" ? "completion" : "commitment",
         conversationId: text(entry.conversationId),
+        messageId: text(entry.messageId),
         messageAt: toDate(entry.messageAt),
         quote: text(entry.quote),
       })),

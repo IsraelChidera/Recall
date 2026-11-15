@@ -2,7 +2,7 @@ import "server-only";
 
 import { titleSimilarity } from "@/lib/domain/discovery";
 
-import { EXTRACTION_SYSTEM, RECONCILIATION_SYSTEM, SCREENING_SYSTEM } from "./prompts";
+import { EXTRACTION_SYSTEM, RECONCILIATION_SYSTEM, RESUME_SYSTEM, SCREENING_SYSTEM } from "./prompts";
 import {
   AIResponseError,
   estimateTokens,
@@ -108,6 +108,26 @@ function reconcile(prompt: string) {
   return { pairs };
 }
 
+/**
+ * One supported point per kind, plus one whose quote is invented, so tests can
+ * show that an unsupported point never reaches the user.
+ */
+function resume(prompt: string) {
+  const messages = parseTranscript(prompt);
+  const sentence = (text: string) => (text.split(/(?<=[.!?])\s+/)[0] ?? text).slice(0, 300);
+  const user = messages.find((message) => message.sender === "USER" && INTENT.test(message.text));
+  const assistant = messages.find((message) => message.sender === "ASSISTANT");
+  const last = messages.at(-1);
+  return {
+    progress: [
+      ...(assistant ? [{ text: "The assistant had replied to the request.", ref: assistant.ref, quote: sentence(assistant.text) }] : []),
+      { text: "A final version had been delivered.", ref: last?.ref ?? "m1", quote: "This sentence appears nowhere in the conversation." },
+    ],
+    decisions: [],
+    openQuestions: user ? [{ text: "The stated intention had not been carried out.", ref: user.ref, quote: sentence(user.text) }] : [],
+  };
+}
+
 export class FakeProvider implements AIProvider {
   readonly name = "fake";
   readonly requests: StructuredRequest<unknown>[] = [];
@@ -121,7 +141,9 @@ export class FakeProvider implements AIProvider {
           ? extract(request.prompt)
           : request.system === RECONCILIATION_SYSTEM
             ? reconcile(request.prompt)
-            : null;
+            : request.system === RESUME_SYSTEM
+              ? resume(request.prompt)
+              : null;
     const parsed = request.schema.safeParse(raw);
     if (!parsed.success) throw new AIResponseError("the stand-in provider has no answer for this request");
     return {
