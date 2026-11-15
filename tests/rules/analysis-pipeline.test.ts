@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { usageDay, type AIConfig } from "@/lib/ai/config";
 import { FakeProvider } from "@/lib/ai/fake";
-import { EXTRACTION_SYSTEM, SCREENING_SYSTEM } from "@/lib/ai/prompts";
+import { EXTRACTION_SYSTEM, RESUME_SYSTEM, SCREENING_SYSTEM } from "@/lib/ai/prompts";
 import {
   AIRateLimitError,
   AIResponseError,
@@ -21,7 +21,10 @@ import type { NormalisedConversation } from "@/lib/domain/conversation";
 import { deleteImport, deleteSourceData, FirestoreImportWriter, listImports, loadSourceIndex } from "@/lib/import/firestore-writer";
 import { parseExport } from "@/lib/import/parse-export";
 import { planImport } from "@/lib/import/plan";
+import { loadResume } from "@/lib/discoveries/store";
+import { buildResumePrompt } from "@/lib/resume/prompt";
 import { advanceJob, JobError, startJob } from "@/lib/server/analysis/job";
+import { generateResumeInsights } from "@/lib/server/resume/generate";
 import type { AnalysisDeps, JobView } from "@/lib/server/analysis/types";
 
 import {
@@ -629,5 +632,120 @@ describe("deleting imported data", () => {
     expect(await tasks()).toHaveLength(0);
     expect((await db.collection(`users/${UID}/projects`).get()).size).toBe(0);
     expect((await db.collection(`users/${UID}/conversations`).get()).size).toBe(0);
+  });
+});
+
+describe("resuming a task", () => {
+  const TEXT = "I will send the quarterly figures to jane@example.com before the board meeting.";
+
+  async function discovered(): Promise<string> {
+    await giveConsent();
+    await importConversations([commitment(1, TEXT)]);
+    await runJob(deps(new FakeProvider()));
+    const [task] = await tasks();
+    return task!.id;
+  }
+  const usedToday = async () =>
+    ((await db.doc(`users/${UID}/usage/${usageDay(new Date())}`).get()).data()?.aiRequests as number) ?? 0;
+
+  it("retrieves the real conversation around the commitment and builds a prompt from it", async () => {
+    const taskId = await discovered();
+    const resume = (await loadResume(clientDb, UID, taskId))!;
+
+    expect(resume.context.conversation?.sourceUrl).toMatch(/^https:\/\/claude\.ai\/chat\//);
+    expect(resume.context.messageCount).toBe(6);
+    const evidence = resume.context.around.find((message) => message.isEvidence)!;
+    expect(evidence.sender).toBe("human");
+    // The address is replaced before the text can be pasted anywhere.
+    expect(evidence.text).toBe("I will send the quarterly figures to [email] before the board meeting.");
+    expect(resume.insights).toBeNull();
+
+    const prompt = buildResumePrompt(resume.context, resume.insights);
+    expect(prompt).toContain("I will send the quarterly figures to [email] before the board meeting.");
+    expect(prompt).toContain("Synthetic answer 1.");
+    expect(prompt).not.toContain("jane@example.com");
+    expect(prompt).toContain("You do not have that conversation");
+  });
+
+  it("adds only points whose quotes are in the conversation, with one counted request", async () => {
+    const taskId = await discovered();
+    const before = await usedToday();
+    const provider = new FakeProvider();
+    const result = await generateResumeInsights(deps(provider), UID, taskId);
+
+    // The stand-in also returns a point with an invented quote. It is dropped.
+    expect(result.points.map((point) => point.kind)).toEqual(["progress", "open_question"]);
+    expect(result.points.map((point) => point.text)).not.toContain("A final version had been delivered.");
+    expect(result.points[1]).toMatchObject({ sender: "human", quote: TEXT.replace("jane@example.com", "[email]") });
+
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0]).toMatchObject({ role: "quality", system: RESUME_SYSTEM });
+    expect(provider.requests[0]!.prompt).not.toContain("jane@example.com");
+    expect(await usedToday()).toBe(before + 1);
+
+    // Saved on the task, read back under the rules and placed in the prompt.
+    const resume = (await loadResume(clientDb, UID, taskId))!;
+    expect(resume.insights?.points).toHaveLength(2);
+    expect(buildResumePrompt(resume.context, resume.insights)).toContain("## What was still open");
+    // The user can still review the task: the saved points do not block their edits.
+    const { reviewTask } = await import("@/lib/discoveries/store");
+    await reviewTask(clientDb, UID, taskId, { status: "approved" });
+  });
+
+  it("refuses without consent, for unknown tasks and for conversations left out", async () => {
+    const taskId = await discovered();
+    const provider = new FakeProvider();
+    await expect(generateResumeInsights(deps(provider), UID, "missing")).rejects.toMatchObject({ status: 404 });
+    // Another user's id reaches nothing: paths are built from the caller's uid.
+    await db.doc("users/bob").set({ aiConsentAccepted: true, aiConsentVersion: 1 });
+    await expect(generateResumeInsights(deps(provider), "bob", taskId)).rejects.toMatchObject({ status: 404 });
+
+    const [conversation] = (await db.collection(`users/${UID}/conversations`).get()).docs;
+    await conversation!.ref.update({ excluded: true });
+    await expect(generateResumeInsights(deps(provider), UID, taskId)).rejects.toMatchObject({ status: 409 });
+    await conversation!.ref.update({ excluded: false });
+
+    await db.doc(`users/${UID}`).update({ aiConsentAccepted: false });
+    await expect(generateResumeInsights(deps(provider), UID, taskId)).rejects.toMatchObject({ status: 403 });
+    expect(provider.requests).toHaveLength(0);
+  });
+
+  it("makes no request once a daily limit is reached", async () => {
+    const taskId = await discovered();
+    const provider = new FakeProvider();
+    const used = await usedToday();
+    await expect(
+      generateResumeInsights(deps(provider, { userDailyRequestCap: used }), UID, taskId),
+    ).rejects.toMatchObject({ status: 429, message: expect.stringMatching(/your AI allowance/) });
+    await expect(
+      generateResumeInsights(deps(provider, { dailyRequestCap: used }), UID, taskId),
+    ).rejects.toMatchObject({ status: 429, message: expect.stringMatching(/shared AI allowance/) });
+    expect(provider.requests).toHaveLength(0);
+  });
+
+  it("reports provider failures without saving anything, and counts an unusable answer", async () => {
+    const taskId = await discovered();
+    const before = await usedToday();
+    await expect(
+      generateResumeInsights(deps(new ScriptedProvider(() => new AIUnavailableError("down"))), UID, taskId),
+    ).rejects.toMatchObject({ status: 503 });
+    await expect(
+      generateResumeInsights(deps(new ScriptedProvider(() => new AIRateLimitError(false, 1_000))), UID, taskId),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(await usedToday()).toBe(before);
+
+    await expect(
+      generateResumeInsights(deps(new ScriptedProvider(() => ({ progress: "not a list" }))), UID, taskId),
+    ).rejects.toMatchObject({ status: 502 });
+    expect(await usedToday()).toBe(before + 1);
+    expect((await db.doc(`users/${UID}/tasks/${taskId}`).get()).data()?.resume).toBeUndefined();
+  });
+
+  it("does not let another user read the context", async () => {
+    const taskId = await discovered();
+    const bob = env
+      .authenticatedContext("bob", { email: "bob@example.com", email_verified: true })
+      .firestore() as unknown as Firestore;
+    await expect(loadResume(bob, UID, taskId)).rejects.toThrow();
   });
 });

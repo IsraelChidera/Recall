@@ -1,9 +1,10 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
+import Link from "next/link";
 import { useId, useState, type FormEvent } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -157,6 +158,11 @@ export function TaskCard({
                 Dismiss
               </Button>
             </>
+          ) : null}
+          {task.status === "approved" || task.status === "in_progress" ? (
+            <Link href={`/resume/${task.id}`} className={buttonVariants({ size: "sm", variant: "outline" })}>
+              Resume
+            </Link>
           ) : null}
           {task.status === "approved" ? (
             <>

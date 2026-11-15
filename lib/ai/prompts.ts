@@ -77,6 +77,26 @@ export function extractionPrompt(args: {
   return `Conversation title: ${args.title || "(untitled)"}${part}${existing}\n\n--- TRANSCRIPT ---\n${args.transcript}\n--- END TRANSCRIPT ---`;
 }
 
+export const RESUME_SYSTEM = `A person is about to pick up one piece of unfinished work from a past conversation with an AI assistant. The person is the USER. You are reading a transcript; each message is labelled like [m12]. Parts of a long conversation may be missing.
+
+Report what the transcript shows about the state of that one piece of work, so the person can continue without rereading everything:
+- progress: what had already been done, produced or worked out.
+- decisions: choices the USER made, or accepted, that later work should respect.
+- openQuestions: what was left unresolved, unanswered or explicitly deferred.
+
+Rules:
+1. Every point needs quote: an exact, word-for-word excerpt from one message, and ref: that message's label. Do not paraphrase a quote. A point without a real quote will be discarded.
+2. Write each point as one plain sentence of at most 30 words. State only what the quote supports. Do not speculate about what happened after the conversation.
+3. A suggestion by the ASSISTANT is a decision only if the USER accepted it.
+4. Leave out anything unrelated to the named piece of work. At most 5 points per list. Empty lists are a correct answer.
+
+${UNTRUSTED}`;
+
+export function resumePrompt(args: { taskTitle: string; conversationTitle: string; transcript: string; partial: boolean }): string {
+  const partial = args.partial ? "\nOnly part of a long conversation is shown." : "";
+  return `The piece of work: ${args.taskTitle}\nConversation title: ${args.conversationTitle || "(untitled)"}${partial}\n\n--- TRANSCRIPT ---\n${args.transcript}\n--- END TRANSCRIPT ---`;
+}
+
 export const RECONCILIATION_SYSTEM = `You compare pairs of task descriptions that came from different conversations of the same person. For each pair, decide whether they describe the same piece of work.
 
 "same" means doing one would complete the other. Related but distinct steps of one project are not the same. When unsure, answer false.
