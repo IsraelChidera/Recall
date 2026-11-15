@@ -401,8 +401,15 @@ it("resumes a task: real context, a prompt to copy, and optional AI points", asy
   expect(await page.evaluate(() => document.body.innerText)).not.toContain("A final version had been delivered.");
 
   await browser.defaultBrowserContext().overridePermissions(BASE, ["clipboard-read", "clipboard-write"]);
+  // The clipboard is only available to the focused tab.
+  await page.bringToFront();
   await clickButton("Copy prompt");
-  await waitForText("Copied. Paste it into a chat to continue.");
+  await page.waitForFunction(
+    () => /Copied\. Paste it|Your browser blocked copying/.test(document.body.innerText),
+    { timeout: 30_000 },
+  );
+  const outcome = await page.evaluate(() => document.body.innerText);
+  expect(outcome).toContain("Copied. Paste it into a chat to continue.");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(after);
 
   const [stored] = (await storedDocs("tasks")).filter((task) => task.fields?.status?.stringValue === "in_progress");
