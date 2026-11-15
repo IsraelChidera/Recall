@@ -2,6 +2,61 @@
 
 Decisions and verified results per milestone. Newest milestone first.
 
+## Milestone 10: Final testing (15 November 2026)
+
+**Scope.** Testing and review only. Deployment is done by the project owner and is not part of this milestone.
+
+**What was checked**
+
+| Check | Result |
+| --- | --- |
+| Lint, typecheck, production build | Pass |
+| Unit tests | 205 pass |
+| Security rules and server pipeline on the Firestore emulator (CI) | 96 pass |
+| Whole journey in a real browser against emulators (CI) | 16 steps pass, no console errors |
+| Browser bundle scanned for secrets (build with marker values for every server secret) | No secret value in any browser asset or prerendered page. One server setting *name* (`ALLOWED_EMAILS`) appears in a help message, by design |
+| Every API route wrapped by `withAuth` | Pass (enforced by a unit test) |
+| Dependency audit | 4 high-severity advisories found, fixed (below). `npm audit` now reports none |
+| Manual review of `firestore.rules`, the four API routes, links, logging, HTML injection | Findings below |
+
+**Problems found and fixed**
+
+1. **A daily AI limit could be overrun by simultaneous requests.** The resume route read the allowance, made the request, then counted it. Several requests sent at once each saw the same spare allowance. Requests are now claimed in a transaction before they are made (`reserveRequest`), and handed back if the provider never served them. One-off requests are also spaced by the per-minute interval per user. Tests: six simultaneous requests let exactly one through; four users racing for two remaining shared requests get exactly two.
+2. **A stored conversation link was shown as written.** `sourceUrl` is written by the browser during import, and was used as a link target on the project and resume pages. A user could only affect their own data, but a link target should not be trusted. It is now used only if it is a `https://claude.ai/chat/...` address; otherwise the link is derived from the conversation id.
+3. **Vulnerable gRPC version** (`@grpc/grpc-js` 1.9, pulled in by the Firestore web SDK for its Node build). Overridden to 1.14.7 in `package.json`. The affected code never ran in the browser or on the server, and the advisories concern gRPC servers, so exposure was nil; the override clears the audit and CI passes with it.
+4. **Malformed stored messages could crash a server request.** Message chunks are written by the browser and only loosely validated by the rules. The transcript builder now treats anything that is not text as empty.
+5. **Saved AI points could outlive the conversation they described.** They are now tied to the conversation's content hash and ignored once a newer export changes it.
+6. **Task lists are capped (300 open, 200 completed) and nothing said so.** The four screens now show a note when a cap is reached.
+7. Stale comments corrected (a rules comment referred to an account-deletion route that does not exist), and the "AI not enabled" message reworded for people who do not run the site.
+
+**Reviewed and left as they are**
+
+- **CSP allows inline scripts.** Removing that needs per-request nonces, which gives up the prerendered pages. Accepted: nothing renders user or model text as HTML, no third-party script is loaded, and `connect-src` limits where data could be sent.
+- **The shared daily limit can be slightly overrun by analysis jobs of different users running at the same moment**, by at most `AI_REQUESTS_PER_ADVANCE` per concurrent user. Jobs are serialised per user by a lease. Keep `AI_DAILY_REQUEST_CAP` below the real quota with a margin.
+- **Open sign-up shares one quota.** With `ALLOWED_EMAILS=*`, a few accounts can use up the shared daily allowance for everyone. An explicit list of addresses avoids this.
+- **No account deletion.** A user can delete all imported data and discoveries. Removing the account and profile is done in the Firebase console.
+- **Weeks are ISO weeks in UTC.**
+
+**Known and unresolved**
+
+- **Slow first save on the emulator.** Timed in CI: the first write after each page load takes 27 to 36 seconds; later writes on the same page take about 100 ms; reads are fast. The spread matches the web SDK's transport retry (a 20 second request timeout plus a 5 to 15 second retry delay), which points at the first write-stream request to the emulator going unanswered. Production uses a different transport path, so this may not occur there, but it has not been observed either way. **Check on real Firebase:** reload a page, change something at once, and see whether it saves within a second or two.
+
+**Not tested at all**
+
+- Anything against real Gemini: model names, quota behaviour, extraction quality, the resume step.
+- Anything against the production Firebase project: deployed rules, composite indexes, real sign-up and email verification.
+- The real export end to end in the app (its structure and counts were used to build the parser; the import has only been run on synthetic data).
+- Browsers other than headless Chrome; real phones; screen readers.
+- Volumes beyond about 100 conversations in the browser test.
+
+**Before going live** (for the owner's manual deployment)
+
+- Deploy rules and indexes: `npx firebase deploy --only firestore:rules,firestore:indexes --project mibitez`. Index builds take a few minutes; queries fail until they finish.
+- On the host, set every variable in `.env.example`. Do **not** set `AI_PROVIDER=fake` (refused on Vercel), `NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true`, or either `*_EMULATOR_HOST` variable.
+- `FIREBASE_PRIVATE_KEY` must keep its line breaks (as `\n` inside double quotes, or pasted as real lines).
+- Decide `ALLOWED_EMAILS` deliberately (see above).
+- After the first deploy, run the journey once by hand: register, verify the email, import, analyse, approve, resume, delete everything.
+
 ## Milestone 9: Resume execution (15 November 2026)
 
 **Objective.** Let the user pick a task back up: show where it was left, write a continuation prompt from the saved conversation, and link back to the original chat.
