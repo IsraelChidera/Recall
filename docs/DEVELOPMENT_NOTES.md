@@ -2,6 +2,43 @@
 
 Decisions and verified results per milestone. Newest milestone first.
 
+## Milestone 9: Resume execution (15 November 2026)
+
+**Objective.** Let the user pick a task back up: show where it was left, write a continuation prompt from the saved conversation, and link back to the original chat.
+
+**What was built**
+
+- `lib/resume/context.ts`: retrieves the context for a task from the stored conversation: the message the commitment was found in, two messages either side, the last four messages, and the project's recorded decisions. Pure function, shared by browser and tests.
+- `lib/resume/prompt.ts`: the template that arranges that context into a prompt. It only arranges; it writes no claim of its own about the work.
+- `/resume/[taskId]`: the context, the prompt, Copy prompt, Open the original chat, Open a new chat, Mark as in progress. Reached from a Resume button on approved and in-progress tasks.
+- Optional AI step, `POST /api/tasks/{taskId}/resume` (`lib/server/resume/generate.ts`): one request to the quality model over a redacted excerpt of the one source conversation. It returns points under three headings (done or worked out, decided, still open), each with a quote. The result is saved on the task (`resume`) so reopening the page spends nothing.
+
+**Decisions**
+
+- **The template is the default, not the fallback.** The prompt is complete and usable with no AI request. The master prompt asked for generation "with template fallback"; here the AI step only adds points to the template, so a quota limit, a provider failure or missing consent never blocks resuming.
+- **No unsupported statement can reach the prompt.** The model is asked only for points with an exact quote and a message label. Each is checked with the same verifier as discoveries, against the messages the model was actually shown; a point that fails is dropped. The model writes no free-text summary and no next step. The stand-in model deliberately returns one invented point, and the tests show it never appears.
+- **Text that will be pasted elsewhere is redacted.** Context excerpts pass through the same redaction as AI requests (secrets, email addresses, long numbers). The prompt says so, since it otherwise claims word-for-word copying.
+- **Honest about what Recall can do.** The page states that Recall cannot open or continue a chat. The links open claude.ai in a new tab; nothing is sent there by Recall. "Open a new chat" is a plain link to `https://claude.ai/new` with no prompt in the address.
+- **The prompt tells the assistant it lacks the earlier conversation**, to rely only on what is shown and to ask when something is missing.
+- **Limits apply.** The AI step needs consent, an allowed account and a conversation not left out of analysis; it is counted against the per-user and shared daily caps, and makes no request once either is reached.
+- **Long conversations.** One request, at most about 60,000 characters: the neighbourhood of the commitment plus the end of the conversation. The model is told when it sees only part.
+- **Copying.** Uses the clipboard API, falls back to the older copy command, and if both are refused leaves the prompt selected with instructions.
+- **No rule or index change.** The `resume` field is server-written; the task review rule checks only the keys a user changes.
+
+**Verified**
+
+- 203 unit tests pass (19 new: context selection, redaction, prompt wording, excerpt selection for long conversations, defensive reading of saved points).
+- Emulator tests in CI (94 passing): context read under the security rules and refused for another user; verified points saved and one request counted; refusal without consent, for unknown tasks, for another user's task id, for a left-out conversation and at either daily cap; provider failures save nothing; a user can still review a task that has saved points.
+- Browser test in CI (16 steps, all passing): open Resume from Execution, prompt contains the real quote and neighbouring reply, the original-chat link is correct, the AI step adds verified points and not the invented one, Copy prompt succeeds and the clipboard content equals the prompt. Screenshots reviewed on desktop and at 390 px.
+
+**Not verified**
+
+- The AI step against real Gemini: prompt quality, how often its quotes verify, and whether the quality model name is valid.
+- Whether pasting the prompt into Claude produces a good continuation. This needs a person with a real task.
+- The clipboard API path itself: the CI browser refused it, so the test exercised the fallback copy command.
+- Conversations longer than the 60,000 character excerpt, beyond the unit tests of the selection.
+- A task merged from several conversations uses only its primary source conversation for context.
+
 ## Milestone 8: Execution dashboard (15 November 2026)
 
 **Objective.** Turn approved discoveries into something the user works from: a daily overview, an Execution Inbox, Forgotten Work and a weekly report.

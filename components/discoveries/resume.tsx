@@ -299,7 +299,7 @@ export function ResumePage() {
         <p className="text-xs leading-relaxed text-muted-foreground">
           Recall cannot open or continue a chat for you. The links open Claude in a new tab, where you are
           signed in yourself; paste the prompt there. Read it first: it contains parts of your conversation
-          as you wrote them.
+          as you wrote them, with secrets, email addresses and long numbers replaced.
         </p>
       </Section>
     </div>
